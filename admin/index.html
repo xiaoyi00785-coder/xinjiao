@@ -58,6 +58,11 @@
     table.compact { min-width: 980px; }
     th, td { border: 1px solid #eee; padding: 8px; vertical-align: top; text-align: left; }
     th { background: #fafafa; white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+    th.sticky-op, td.sticky-op {
+      position: sticky; right: 0; background: #fff; z-index: 3; min-width: 96px;
+      box-shadow: -6px 0 8px rgba(0,0,0,.06);
+    }
+    th.sticky-op { z-index: 4; background: #fafafa; }
     .info { line-height: 1.8; }
     .ops { display: flex; flex-direction: column; gap: 6px; width: 92px; }
     .ops .btn { width: 100%; }
@@ -702,23 +707,50 @@
       if (t === "rejected") return `<span class="tag red">${esc(t)}</span>`;
       return esc(t || "-");
     }
+    function isPendingRecharge(r) {
+      return Number(r.status) === 0 || r.status === "0" || r.status_str === "pending" || r.status_str === "待审核";
+    }
     async function renderRecharge() {
-      const res = await api("/admin/api/recharges", { page: 1 });
+      const st = state.rechargeStatus === undefined ? "0" : state.rechargeStatus;
+      const res = await api("/admin/api/recharges", { page: state.rechargePage || 1, limit: 20, status: st, phone: state.rechargePhone || "" });
       const list = res.data.list || [];
+      const pg = res.data.page || { current: 1, total: list.length, pages: 1 };
       content.innerHTML = `
-        <div class="search"><span class="muted">用户提交只生成待审单。点通过才加余额；链上监控匹配到同金额待审单也会自动入账。</span></div>
+        <div class="search">
+          <div class="item"><label>状态</label>
+            <select id="r_status" onchange="state.rechargeStatus=this.value;state.rechargePage=1;renderRecharge()">
+              <option value="0" ${st==="0"?"selected":""}>待审核</option>
+              <option value="" ${st===""?"selected":""}>全部</option>
+              <option value="1" ${st==="1"?"selected":""}>已通过</option>
+              <option value="2" ${st==="2"?"selected":""}>已拒绝</option>
+            </select>
+          </div>
+          <div class="item"><label>用户</label><input id="r_phone" value="${esc(state.rechargePhone || "")}" placeholder="手机号"></div>
+          <button class="btn primary" onclick="state.rechargePhone=document.getElementById('r_phone').value;state.rechargePage=1;renderRecharge()">搜索</button>
+          <span class="muted">待审单点通过入账、点拒绝关闭。链上匹配到同金额也会自动入账。</span>
+        </div>
         <div class="table-wrap"><table class="compact">
-          <tr><th>ID</th><th>用户</th><th>金额</th><th>网络</th><th>状态</th><th>链上</th><th>Tx</th><th>时间</th><th>操作</th></tr>
+          <tr>
+            <th>ID</th><th>用户</th><th>金额</th><th>网络</th><th>状态</th>
+            <th>链上</th><th>Tx</th><th>时间</th><th class="sticky-op">操作</th>
+          </tr>
           ${list.map((r) => `<tr>
             <td>${r.id}</td><td>${esc(r.phone)}</td><td>${r.amount}</td><td>${esc(r.type)}</td>
             <td>${statusTag(r.status_str)}</td>
             <td>${statusTag(r.chain_status || (Number(r.status)===1 && r.review_by==="chain" ? "confirmed" : ""))}</td>
             <td class="addr">${r.tx ? `<a href="https://tronscan.org/#/transaction/${esc(r.tx)}" target="_blank">${esc(String(r.tx).slice(0,12))}...</a>` : "-"}</td>
             <td>${esc(r.time)}</td>
-            <td>${Number(r.status)===0 ? `<button class="btn primary" onclick="reviewRecharge(${r.id},1)">通过</button>
-              <button class="btn red" onclick="reviewRecharge(${r.id},2)">拒绝</button>` : "-"}</td>
+            <td class="sticky-op">${isPendingRecharge(r) ? `<div class="ops">
+              <button type="button" class="btn primary" onclick="reviewRecharge('${r.id}',1)">通过</button>
+              <button type="button" class="btn red" onclick="reviewRecharge('${r.id}',2)">拒绝</button>
+            </div>` : `<span class="muted">-</span>`}</td>
           </tr>`).join("") || "<tr><td colspan='9'>暂无数据</td></tr>"}
-        </table></div>`;
+        </table></div>
+        <div class="pager">
+          共 ${pg.total} 条，第 ${pg.current}/${pg.pages} 页
+          <button class="btn" ${pg.current<=1?"disabled":""} onclick="state.rechargePage=${pg.current-1};renderRecharge()">上一页</button>
+          <button class="btn" ${pg.current>=pg.pages?"disabled":""} onclick="state.rechargePage=${pg.current+1};renderRecharge()">下一页</button>
+        </div>`;
     }
     async function reviewRecharge(id, status) {
       const res = await api("/admin/api/recharge/review", { id, status });
@@ -727,6 +759,8 @@
       renderRecharge();
       refreshBadges();
     }
+    window.reviewRecharge = reviewRecharge;
+    window.renderRecharge = renderRecharge;
     async function renderChain() {
       const res = await api("/admin/api/chain/txs");
       const d = res.data || {};

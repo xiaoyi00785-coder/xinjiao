@@ -1628,7 +1628,17 @@ both("/admin/api/recharge-address/action", (req) => {
   saveDb();
   return ok(row);
 });
-both("/admin/api/recharges", (req) => ok(pageWrap(db.recharges, body(req).page, 10)));
+both("/admin/api/recharges", (req) => {
+  const b = body(req);
+  let list = (db.recharges || []).slice();
+  const st = b.status === undefined || b.status === "" ? "" : String(b.status);
+  if (st === "0" || st === "pending") list = list.filter((x) => Number(x.status) === 0);
+  else if (st === "1" || st === "success") list = list.filter((x) => Number(x.status) === 1);
+  else if (st === "2" || st === "rejected") list = list.filter((x) => Number(x.status) === 2);
+  if (b.phone) list = list.filter((x) => String(x.phone || "").includes(String(b.phone)));
+  list.sort((a, c) => Number(a.status) - Number(c.status) || (Number(c.id) - Number(a.id)));
+  return ok(pageWrap(list, b.page, b.limit || 20));
+});
 both("/admin/api/recharge/review", (req) => {
   const b = body(req);
   const row = db.recharges.find((x) => String(x.id) === String(b.id));
