@@ -208,6 +208,40 @@ function collectionTrc20() {
   return String(row.address || "").trim();
 }
 
+function userCollectAddr(user) {
+  return String(user && user.recharge_address || "").trim();
+}
+
+function rechargeAddrsFor(user) {
+  const mine = userCollectAddr(user);
+  if (mine) {
+    return [
+      publicRechargeAddr({
+        id: user.id,
+        name: "USDT-TRC20",
+        type: "TRC20",
+        address: mine,
+        is_default: 1,
+        enabled: 1,
+        sort: 1,
+        remark: "user",
+      }),
+    ];
+  }
+  return enabledRechargeAddrs();
+}
+
+function watchAddresses() {
+  const set = new Set();
+  const g = collectionTrc20();
+  if (g) set.add(g);
+  (db.users || []).forEach((u) => {
+    const a = userCollectAddr(u);
+    if (a) set.add(a);
+  });
+  return [...set];
+}
+
 function ensureChainStore() {
   if (!Array.isArray(db.recharges)) db.recharges = [];
   if (!Array.isArray(db.chainTxs)) db.chainTxs = [];
@@ -250,9 +284,14 @@ function creditRecharge(row, extra = {}) {
   return { ok: true, row, user };
 }
 
-function matchPendingRecharge(amount) {
+function matchPendingRecharge(amount, opt = {}) {
   const want = Number(money(amount));
-  const list = (db.recharges || []).filter((r) => Number(r.status) === 0 && Math.abs(Number(r.amount) - want) < 0.0001);
+  let list = (db.recharges || []).filter((r) => Number(r.status) === 0 && Math.abs(Number(r.amount) - want) < 0.0001);
+  if (opt.uid) list = list.filter((r) => r.uid === opt.uid);
+  if (opt.to) {
+    const hit = list.filter((r) => String(r.collect || "") === String(opt.to));
+    if (hit.length) list = hit;
+  }
   return list[list.length - 1] || null;
 }
 
@@ -278,7 +317,8 @@ function ingestChainTx(item) {
     matched_phone: "",
     status: "unmatched",
   };
-  const pending = matchPendingRecharge(usdt);
+  const owner = (db.users || []).find((u) => userCollectAddr(u) === rec.to) || null;
+  const pending = matchPendingRecharge(usdt, { uid: owner && owner.id, to: rec.to });
   if (pending) {
     rec.matched_id = pending.id;
     rec.matched_phone = pending.phone;
@@ -304,40 +344,46 @@ function ingestChainTx(item) {
 }
 
 async function pollTrc20() {
-  const addr = collectionTrc20();
+  const addrs = watchAddresses();
   db.chainWatch = db.chainWatch || {};
-  db.chainWatch.address = addr;
-  if (!addr) {
+  db.chainWatch.address = addrs.join(",");
+  db.chainWatch.addresses = addrs;
+  if (!addrs.length) {
     db.chainWatch.lastError = "no TRC20 collection address";
     return;
   }
-  try {
-    const url =
-      TRONGRID.replace(/\/$/, "") +
-      "/v1/accounts/" +
-      encodeURIComponent(addr) +
-      "/transactions/trc20?only_to=true&limit=40&contract_address=" +
-      USDT_TRC20;
-    const headers = { Accept: "application/json" };
-    if (TRONGRID_KEY) headers["TRON-PRO-API-KEY"] = TRONGRID_KEY;
-    const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
-    if (!res.ok) throw new Error("trongrid " + res.status);
-    const json = await res.json();
-    const list = Array.isArray(json.data) ? json.data : [];
-    let fresh = 0;
-    for (const item of list) {
-      const r = ingestChainTx(item);
-      if (r.ok) fresh += 1;
+  const headers = { Accept: "application/json" };
+  if (TRONGRID_KEY) headers["TRON-PRO-API-KEY"] = TRONGRID_KEY;
+  let fresh = 0;
+  let count = 0;
+  const errors = [];
+  for (const addr of addrs) {
+    try {
+      const url =
+        TRONGRID.replace(/\/$/, "") +
+        "/v1/accounts/" +
+        encodeURIComponent(addr) +
+        "/transactions/trc20?only_to=true&limit=40&contract_address=" +
+        USDT_TRC20;
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+      if (!res.ok) throw new Error("trongrid " + res.status);
+      const json = await res.json();
+      const list = Array.isArray(json.data) ? json.data : [];
+      count += list.length;
+      for (const item of list) {
+        if (!item.to) item.to = addr;
+        const r = ingestChainTx(item);
+        if (r.ok) fresh += 1;
+      }
+    } catch (e) {
+      errors.push(addr.slice(0, 8) + ":" + (e.message || e));
     }
-    db.chainWatch.lastPoll = nowStr();
-    db.chainWatch.lastError = "";
-    db.chainWatch.lastCount = list.length;
-    db.chainWatch.lastFresh = fresh;
-    saveDb();
-  } catch (e) {
-    db.chainWatch.lastPoll = nowStr();
-    db.chainWatch.lastError = e.message || String(e);
   }
+  db.chainWatch.lastPoll = nowStr();
+  db.chainWatch.lastError = errors.join("; ");
+  db.chainWatch.lastCount = count;
+  db.chainWatch.lastFresh = fresh;
+  saveDb();
 }
 
 function startChainWatch() {
@@ -635,6 +681,7 @@ function ensureUserFlags() {
     if (u.register_ip == null) u.register_ip = u.last_ip || "-";
     if (u.source_web == null) u.source_web = "Luxury";
     if (u.status == null) u.status = u.frozen ? 0 : 1;
+    if (u.recharge_address == null) u.recharge_address = "";
   });
   if (dirty) saveDb();
 }
@@ -884,6 +931,7 @@ both("/data/api.login/register", (req) => {
     address: "",
     address2: "",
     address3: "",
+    recharge_address: "",
     wallet_address: "",
     credit: 100,
     gender_str: "Female",
@@ -992,8 +1040,11 @@ both("/data/api.user/getPrizeRecords", (req) => {
   if (err) return err;
   return ok(pageWrap(db.prizeRecords.filter((x) => x.uid === user.id)));
 });
-both("/data/api.user/getRechargeAddressList", () => ok(enabledRechargeAddrs()));
-both("/data/api.user/getRechargeAddressDefault", () => ok(defaultRechargeAddr()));
+both("/data/api.user/getRechargeAddressList", (req) => ok(rechargeAddrsFor(findUserByToken(req))));
+both("/data/api.user/getRechargeAddressDefault", (req) => {
+  const list = rechargeAddrsFor(findUserByToken(req));
+  return ok(list.find((x) => x.is_default) || list[0] || {});
+});
 both("/data/api.user/getNewPersonWalletList", () => ok([]));
 both("/data/api.user/setMulWalletInfo", (req) => {
   const { user, err } = needUser(req);
@@ -1046,7 +1097,7 @@ both("/data/api.user/userRecharge", (req) => {
     tx: "",
     image: b.image || "",
     chain_status: "",
-    collect: collectionTrc20(),
+    collect: userCollectAddr(user) || collectionTrc20(),
   };
   db.recharges.unshift(row);
   saveDb();
@@ -1364,6 +1415,7 @@ both("/admin/api/user/action", (req) => {
     if (b.bank_account != null) user.bank_account = String(b.bank_account);
     if (b.bank_real != null) user.bank_real = String(b.bank_real);
     if (b.address != null) user.address = String(b.address);
+    if (b.recharge_address != null) user.recharge_address = String(b.recharge_address).trim();
     refreshDifference(user);
     info = "用户资料已保存";
   }
@@ -1402,6 +1454,7 @@ both("/admin/api/user/create", (req) => {
     amount_difference: "0.0000",
     is_set_root: 1,
     address: "",
+    recharge_address: String(b.recharge_address || "").trim(),
     credit: Number(b.credit || 100),
     gender_str: "Female",
     service_url: "https://wa.me/447380931510",

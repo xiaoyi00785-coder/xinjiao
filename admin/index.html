@@ -350,7 +350,7 @@
         <td>${u.loan || "-"}</td>
         <td class="info">总提款:${u.total_withdraw}<br>总充值:${u.total_recharge}<br>
           <button class="btn" onclick="openChange(${u.id})">账变</button></td>
-        <td class="addr">${esc(u.address || "-")}</td>
+        <td class="addr">${esc(u.recharge_address || "-")}${u.recharge_address ? `<div class="muted">TRC20</div>` : ""}</td>
         <td class="info">登录次数:${u.login_count || 0}<br>IP:${esc(u.last_ip || "-")}</td>
         <td class="info">${esc(u.add_time_str)}<br>
           <div class="ops">
@@ -388,6 +388,7 @@
           <select id="w_vip"><option value="1">VIP1</option><option value="2">VIP2</option><option value="3">VIP3</option></select>
         </div>
         <div class="row"><label>邀请码（可空）</label><input id="w_yqm" placeholder="自动生成"></div>
+        <div class="row"><label>充值地址 TRC20（可空，空则用全局地址）</label><textarea id="w_pay" rows="2" placeholder="T..."></textarea></div>
         <div class="actions">
           <button class="btn primary" onclick="saveWorker()">保存</button>
           <button class="btn" onclick="modal.className='modal'">取消</button>
@@ -397,7 +398,7 @@
     async function saveWorker() {
       const res = await api("/admin/api/user/create", {
         phone: w_phone.value, name: w_name.value, password: w_pass.value, trade_password: w_trade.value,
-        amount: w_amt.value, vip_level: w_vip.value, yqm: w_yqm.value, accountType: 1
+        amount: w_amt.value, vip_level: w_vip.value, yqm: w_yqm.value, accountType: 1, recharge_address: w_pay.value
       });
       if (res.code !== 1) return toast(res.info, 1);
       modal.className = "modal";
@@ -580,6 +581,12 @@
             <option value="2" ${Number(u.accountType)===2?"selected":""}>业务员账号</option>
           </select>
         </div>
+        <div class="row"><label>充值地址 TRC20</label>
+          <textarea id="e_pay" rows="2" oninput="previewUserPayQr()" placeholder="该用户专属收款地址，空则用全局前端充值地址">${esc(u.recharge_address || "")}</textarea>
+        </div>
+        <div class="row"><label>充值二维码</label>
+          <img id="e_pay_qr" alt="qr" style="width:140px;height:140px;background:#fff;border:1px solid #eee;object-fit:contain" src="${u.recharge_address ? "/qr?data=" + encodeURIComponent(u.recharge_address) : ""}">
+        </div>
         <div class="row"><label>登录密码（空=不改）</label><input id="e_pass" placeholder="留空不改"></div>
         <div class="row"><label>资金密码（空=不改）</label><input id="e_trade" placeholder="留空不改"></div>
         <div class="actions">
@@ -587,11 +594,17 @@
           <button class="btn" onclick="modal.className='modal'">取消</button>
         </div></div>`;
     }
+    function previewUserPayQr() {
+      const addr = (document.getElementById("e_pay") && e_pay.value || "").trim();
+      const img = document.getElementById("e_pay_qr");
+      if (img) img.src = addr ? "/qr?data=" + encodeURIComponent(addr) : "";
+    }
     async function doEdit(id) {
       await act(id, "edit", {
         name: e_name.value, phone: e_phone.value, amount: e_amount.value, amount_frozen: e_frozen.value,
         credit: e_credit.value, vip_level: e_vip.value, commission_rate: e_rate.value,
-        task_number_vip: e_tasks.value, accountType: e_type.value, password: e_pass.value, trade_password: e_trade.value
+        task_number_vip: e_tasks.value, accountType: e_type.value, password: e_pass.value, trade_password: e_trade.value,
+        recharge_address: e_pay.value
       });
       modal.className = "modal";
     }
@@ -722,8 +735,9 @@
       content.innerHTML = `
         <div class="search">
           <button class="btn primary" onclick="syncChain()">立即同步</button>
-          <span class="muted">收款 ${esc(d.address || "-")} ｜ 上次 ${esc(w.lastPoll || "-")} ｜ ${esc(w.lastError || "正常")} ｜ 待审 ${d.pending || 0}</span>
+          <span class="muted">监控 ${(w.addresses || [d.address]).filter(Boolean).length} 个地址 ｜ 上次 ${esc(w.lastPoll || "-")} ｜ ${esc(w.lastError || "正常")} ｜ 待审 ${d.pending || 0}</span>
         </div>
+        <div class="muted" style="margin:0 0 10px;word-break:break-all">${esc((w.addresses || [d.address]).filter(Boolean).join(" | ") || "-")}</div>
         <div class="table-wrap"><table class="compact">
           <tr><th>时间</th><th>金额 USDT</th><th>From</th><th>Tx</th><th>匹配用户</th><th>状态</th></tr>
           ${list.map((r) => `<tr>
