@@ -78,6 +78,7 @@ function assert(cond, msg) {
     assert(a1.data.isHappy === 1, "multi #1 should stuck");
     eq(a1.data.amount, b0 + 100, "multi #1 want " + (b0 + 100) + " got " + a1.data.amount);
     eq(a1.data.commission, 10, "multi #1 commission want 10 got " + a1.data.commission);
+    eq(a1.data.commission_money, 10, "multi #1 commission_money want 10 got " + a1.data.commission_money);
     await coverAndSubmit(a1.data, 100);
     const a2 = await grab();
     assert(a2.data.isHappy !== 1, "multi #2 should be normal, got " + a2.data.amount);
@@ -215,6 +216,7 @@ function assert(cond, msg) {
     eq(o.data.amount, 698, "500+198 要出698 got " + o.data.amount);
     eq(o.data.diff_money, 198, "差额要198 got " + o.data.diff_money);
     eq(o.data.commission, 50, "佣金填50就要拿50 got " + o.data.commission);
+    eq(o.data.commission_money, 50, "commission_money 要50 got " + o.data.commission_money);
     const blocked = await submit(o.data);
     assert(blocked.code !== 1, "500块不该过698的单");
     await post("/admin/api/user/action", { id: uid, action: "change", amount: 198, remark: "cover 198" }, admin);
@@ -224,6 +226,43 @@ function assert(cond, msg) {
     ok.push("账户500卡198，出698，补198完成拿佣金50变748");
   } catch (e) {
     fails.push("余额加差额: " + e.message);
+  }
+
+  try {
+    await wipe();
+    const save = await post("/admin/api/stuck/save", {
+      uid, type: "multi", current_number: "1/2", over_money: "100/200",
+      commission_type: "fixed", commission_rate: "20/30",
+    }, admin);
+    assert(save.code === 1, "slash save fail " + save.info);
+    const o = await grab();
+    eq(o.data.commission, 20, "20/30 第1单佣金要20不能是0 got " + o.data.commission);
+    eq(o.data.commission_money, 20, "commission_money 要20 got " + o.data.commission_money);
+    ok.push("多卡单佣金 20/30 第1单显示20不是0");
+  } catch (e) {
+    fails.push("斜杠佣金: " + e.message);
+  }
+
+  try {
+    await wipe();
+    let save = await post("/admin/api/stuck/save", {
+      uid, type: "normal", current_number: "1", over_money: "100",
+      commission_type: "fixed", commission_rate: "0", number: 1,
+    }, admin);
+    assert(save.code === 1, "zero comm save fail " + save.info);
+    let o = await grab();
+    eq(o.data.commission, 0, "先出0佣金单");
+    save = await post("/admin/api/stuck/save", {
+      uid, type: "normal", current_number: "1", over_money: "100",
+      commission_type: "fixed", commission_rate: "30", number: 1,
+    }, admin);
+    assert(save.code === 1, "resave 30 fail " + save.info);
+    o = await grab();
+    eq(o.data.commission, 30, "后台补填30后用户端要显示30 got " + o.data.commission);
+    eq(o.data.commission_money, 30, "commission_money 要30 got " + o.data.commission_money);
+    ok.push("待完成卡单佣金0时，后台改填30用户端立刻显示30");
+  } catch (e) {
+    fails.push("补填佣金: " + e.message);
   }
 
   console.log("PASS");

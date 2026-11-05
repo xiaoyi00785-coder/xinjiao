@@ -665,7 +665,8 @@ function matchStuckPlan(user, nextNo) {
       if (type === "multi") {
         const nums = parseSlash(p.current_number).map(Number);
         const idx = nums.indexOf(n);
-        if (idx >= 0) return { plan: p, idx };
+        const used = Array.isArray(p.used_index) ? p.used_index : [];
+        if (idx >= 0 && !used.includes(idx)) return { plan: p, idx };
       } else if (type === "normal") {
         const start = Number(p.current_number);
         const times = Math.max(1, Number(p.number || 1));
@@ -745,6 +746,7 @@ function buildPlanOrder(user, hit) {
     goods_pic: "/assets/product1-CFGVH2j5.png",
     amount: money(amount),
     commission: money(commission),
+    commission_money: money(commission),
     state: 0,
     state_str: "pending",
     time: nowStr(),
@@ -754,6 +756,7 @@ function buildPlanOrder(user, hit) {
     plan_type: p.type,
     split_count: count,
     stuck_extra: money(extra),
+    stuck_idx: hit.idx,
   };
   db.orders.unshift(order);
   consumePlan(hit);
@@ -873,6 +876,7 @@ function makeStuckOrder(user) {
     goods_pic: "/assets/product1-CFGVH2j5.png",
     amount: money(amount),
     commission: money(commission),
+    commission_money: money(commission),
     state: 0,
     state_str: "pending",
     time: nowStr(),
@@ -884,6 +888,35 @@ function makeStuckOrder(user) {
   return order;
 }
 
+function resolveStuckIdx(order, plan) {
+  if (order && order.stuck_idx != null && order.stuck_idx !== "") return Number(order.stuck_idx);
+  if (plan && plan.type === "multi") {
+    const used = Array.isArray(plan.used_index) ? plan.used_index : [];
+    if (used.length) return Number(used[used.length - 1]);
+  }
+  return 0;
+}
+
+function fillOrderCommissionFromPlan(order) {
+  if (!order || !order.plan_id) return order;
+  const plan = (db.stuckPlans || []).find((p) => String(p.id) === String(order.plan_id));
+  if (!plan) return order;
+  const idx = resolveStuckIdx(order, plan);
+  const commission = commissionOf(plan, Number(order.amount), idx);
+  order.commission = money(commission);
+  order.commission_money = money(commission);
+  return order;
+}
+
+function replacePendingWithHit(user, hit) {
+  const pending = pendingOrder(user);
+  if (pending) {
+    pending.state = 2;
+    pending.state_str = "replaced-by-stuck";
+  }
+  return buildPlanOrder(user, hit);
+}
+
 function resetTasks(user) {
   user.task_number_today = 0;
   user.amount_today = "0.0000";
@@ -893,10 +926,11 @@ function resetTasks(user) {
 }
 
 function publicOrder(o, user) {
+  if (o && Number(o.state) === 0 && o.plan_id) fillOrderCommissionFromPlan(o);
   const qty = Number(o.split_count || o.goods_number || 1) || 1;
   const total = Number(o.total_money != null ? o.total_money : o.amount || 0);
   const unit = Number(o.goods_price != null ? o.goods_price : qty ? total / qty : total);
-  const commission = Number(o.commission_money != null ? o.commission_money : o.commission || 0);
+  const commission = Number(o.commission != null && o.commission !== "" ? o.commission : o.commission_money || 0);
   const pending = Number(o.state) === 0;
   const bal = user ? Number(user.amount || 0) : 0;
   const diff = pending ? Math.max(0, total - bal) : Number(o.diff_money || 0);
@@ -1354,9 +1388,18 @@ both("/data/api.order/create", (req) => {
   if (user.frozen) return fail("Account frozen");
   if (user.task_number_today >= user.task_number_vip) return fail("Daily tasks completed");
   const pending = pendingOrder(user);
-  if (pending) return ok(publicOrder(pending, user));
   const nextNo = Number(user.task_number_today || 0) + 1;
   const hitPlan = matchStuckPlan(user, nextNo);
+  if (pending) {
+    if (hitPlan && pending.stuck && String(pending.plan_id) !== String(hitPlan.plan.id)) {
+      const order = replacePendingWithHit(user, hitPlan);
+      saveDb();
+      return ok(publicOrder(order, user));
+    }
+    fillOrderCommissionFromPlan(pending);
+    saveDb();
+    return ok(publicOrder(pending, user));
+  }
   if (hitPlan) {
     const order = buildPlanOrder(user, hitPlan);
     saveDb();
@@ -1385,6 +1428,7 @@ both("/data/api.order/create", (req) => {
     goods_pic: product.image,
     amount: money(amount),
     commission: money(commission),
+    commission_money: money(commission),
     state: 0,
     state_str: "pending",
     time: nowStr(),
@@ -1406,8 +1450,9 @@ both("/data/api.order/submitOrder", (req) => {
   });
   if (!order) return fail("Order not found");
   if (order.state !== 0) return fail("Order already submitted");
+  fillOrderCommissionFromPlan(order);
   const amount = Number(order.amount);
-  const commission = Number(order.commission_money != null ? order.commission_money : order.commission || 0);
+  const commission = Number(order.commission != null && order.commission !== "" ? order.commission : order.commission_money || 0);
   if (Number(user.amount) < amount) {
     refreshDifference(user);
     saveDb();
@@ -1859,8 +1904,9 @@ both("/admin/api/stuck/save", (req) => {
   syncStuckFlag(user);
   const nextNo = Number(user.task_number_today || 0) + 1;
   const hit = matchStuckPlan(user, nextNo);
-  if (hit && !pendingOrder(user)) {
-    buildPlanOrder(user, hit);
+  if (hit && hit.plan.id === row.id) {
+    if (pendingOrder(user)) replacePendingWithHit(user, hit);
+    else buildPlanOrder(user, hit);
   }
   saveDb();
   return ok(row, "卡单已保存，计划订单已写入");
