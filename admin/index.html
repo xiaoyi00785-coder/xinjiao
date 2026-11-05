@@ -247,7 +247,7 @@
       state.filters = {
         id: val("f_id"), phone: val("f_phone"), name: val("f_name"),
         register_ip: val("f_rip"), last_ip: val("f_lip"), yqm: val("f_yqm"),
-        address: val("f_addr"), accountType: val("f_type") || state.accountType,
+        address: val("f_addr"), remark: val("f_remark"), accountType: val("f_type") || state.accountType,
         vip_level: val("f_vip"), source_web: val("f_web"), status: val("f_status")
       };
       state.pageNo = 1;
@@ -274,6 +274,7 @@
           <div class="item"><label>登录IP</label><input id="f_lip" value="${esc(f.last_ip || "")}" placeholder="请输入登录IP"></div>
           <div class="item"><label>邀请码</label><input id="f_yqm" value="${esc(f.yqm || "")}" placeholder="请输入邀请码"></div>
           <div class="item"><label>充值地址</label><input id="f_addr" value="${esc(f.address || "")}" placeholder="请输入充值地址"></div>
+          <div class="item"><label>备注</label><input id="f_remark" value="${esc(f.remark || "")}" placeholder="搜索备注"></div>
           <div class="item"><label>账号类型</label>
             <select id="f_type">
               <option value="">-- 全部 --</option>
@@ -332,7 +333,9 @@
           ${u.frozen ? '<span class="tag red">冻结</span>' : ""}<br>
           用户手机：${esc(u.phone)}<br>用户名：${esc(u.name)}<br>邀请码:${esc(u.yqm)}<br>
           会员等级:${esc(u.vip_name)}<br>做单佣金:${esc(u.commission_rate)}%<br>
+          ${u.remark ? `<div class="tag orange" style="white-space:normal;max-width:240px;line-height:1.4;margin:4px 0">备注：${esc(u.remark)}</div>` : `<div class="muted">备注：无</div>`}
           <button class="btn" onclick="openBank(${u.id})">银行卡信息</button>
+          <button class="btn orange" onclick="openRemark(${u.id})">备注</button>
         </td>
         <td>${u.credit}</td>
         <td class="info">
@@ -394,6 +397,7 @@
         </div>
         <div class="row"><label>邀请码（可空）</label><input id="w_yqm" placeholder="自动生成"></div>
         <div class="row"><label>充值地址 TRC20（可空，空则用全局地址）</label><textarea id="w_pay" rows="2" placeholder="T..."></textarea></div>
+        <div class="row"><label>备注</label><textarea id="w_remark" rows="3" placeholder="后台备注，仅管理员可见"></textarea></div>
         <div class="actions">
           <button class="btn primary" onclick="saveWorker()">保存</button>
           <button class="btn" onclick="modal.className='modal'">取消</button>
@@ -403,7 +407,7 @@
     async function saveWorker() {
       const res = await api("/admin/api/user/create", {
         phone: w_phone.value, name: w_name.value, password: w_pass.value, trade_password: w_trade.value,
-        amount: w_amt.value, vip_level: w_vip.value, yqm: w_yqm.value, accountType: 1, recharge_address: w_pay.value
+        amount: w_amt.value, vip_level: w_vip.value, yqm: w_yqm.value, accountType: 1, recharge_address: w_pay.value, remark: w_remark.value
       });
       if (res.code !== 1) return toast(res.info, 1);
       modal.className = "modal";
@@ -592,12 +596,32 @@
         <div class="row"><label>充值二维码</label>
           <img id="e_pay_qr" alt="qr" style="width:140px;height:140px;background:#fff;border:1px solid #eee;object-fit:contain" src="${u.recharge_address ? "/qr?data=" + encodeURIComponent(u.recharge_address) : ""}">
         </div>
+        <div class="row"><label>后台备注</label><textarea id="e_remark" rows="3" placeholder="记录这个用户的情况，仅后台可见">${esc(u.remark || "")}</textarea></div>
         <div class="row"><label>登录密码（空=不改）</label><input id="e_pass" placeholder="留空不改"></div>
         <div class="row"><label>资金密码（空=不改）</label><input id="e_trade" placeholder="留空不改"></div>
         <div class="actions">
           <button class="btn primary" onclick="doEdit(${id})">保存</button>
           <button class="btn" onclick="modal.className='modal'">取消</button>
         </div></div>`;
+    }
+    function openRemark(id) {
+      const u = findUser(id);
+      modal.className = "modal show";
+      modal.innerHTML = `<div class="box">
+        <h3>备注 · ${esc(u.phone || id)}</h3>
+        <p class="muted">${esc(u.name || "")} ｜ ${Number(u.accountType)===1?"做单账户":"用户"}</p>
+        <div class="row"><label>后台备注</label>
+          <textarea id="r_text" rows="5" placeholder="例如：第15单卡198，已沟通补余额">${esc(u.remark || "")}</textarea>
+        </div>
+        <div class="actions">
+          <button class="btn primary" onclick="saveRemark(${id})">保存备注</button>
+          <button class="btn" onclick="modal.className='modal'">取消</button>
+        </div>
+      </div>`;
+    }
+    async function saveRemark(id) {
+      await act(id, "edit", { remark: document.getElementById("r_text").value });
+      modal.className = "modal";
     }
     function previewUserPayQr() {
       const addr = (document.getElementById("e_pay") && e_pay.value || "").trim();
@@ -609,7 +633,7 @@
         name: e_name.value, phone: e_phone.value, amount: e_amount.value, amount_frozen: e_frozen.value,
         credit: e_credit.value, vip_level: e_vip.value, commission_rate: e_rate.value,
         task_number_vip: e_tasks.value, accountType: e_type.value, password: e_pass.value, trade_password: e_trade.value,
-        recharge_address: e_pay.value
+        recharge_address: e_pay.value, remark: e_remark.value
       });
       modal.className = "modal";
     }

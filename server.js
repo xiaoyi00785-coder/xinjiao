@@ -711,6 +711,7 @@ function ensureUserFlags() {
     if (u.source_web == null) u.source_web = "Luxury";
     if (u.status == null) u.status = u.frozen ? 0 : 1;
     if (u.recharge_address == null) u.recharge_address = "";
+    if (u.remark == null) u.remark = "";
   });
   if (dirty) saveDb();
 }
@@ -959,6 +960,7 @@ both("/data/api.login/register", (req) => {
     address2: "",
     address3: "",
     recharge_address: "",
+    remark: "",
     wallet_address: "",
     credit: 100,
     gender_str: "Female",
@@ -1359,6 +1361,7 @@ both("/admin/api/users", (req) => {
   if (b.name) list = list.filter((u) => String(u.name).includes(String(b.name)));
   if (b.yqm) list = list.filter((u) => String(u.yqm).includes(String(b.yqm)));
   if (b.address) list = list.filter((u) => String(u.address || "").includes(String(b.address)));
+  if (b.remark) list = list.filter((u) => String(u.remark || "").includes(String(b.remark)));
   if (b.register_ip) list = list.filter((u) => String(u.register_ip || "").includes(String(b.register_ip)));
   if (b.last_ip) list = list.filter((u) => String(u.last_ip || "").includes(String(b.last_ip)));
   if (b.accountType !== undefined && b.accountType !== "") {
@@ -1445,6 +1448,7 @@ both("/admin/api/user/action", (req) => {
     if (b.bank_real != null) user.bank_real = String(b.bank_real);
     if (b.address != null) user.address = String(b.address);
     if (b.recharge_address != null) user.recharge_address = String(b.recharge_address).trim();
+    if (b.remark != null) user.remark = String(b.remark);
     refreshDifference(user);
     info = "用户资料已保存";
   }
@@ -1484,6 +1488,7 @@ both("/admin/api/user/create", (req) => {
     is_set_root: 1,
     address: "",
     recharge_address: String(b.recharge_address || "").trim(),
+    remark: String(b.remark || "").trim(),
     credit: Number(b.credit || 100),
     gender_str: "Female",
     service_url: "https://wa.me/447380931510",
