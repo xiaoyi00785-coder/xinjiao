@@ -116,7 +116,7 @@
 <body>
   <div id="login">
     <div class="login-box">
-      <h2>系统管理</h2>
+      <h2 id="loginTitle">系统管理</h2>
       <div class="field"><span>👤</span><input id="u" placeholder="登录账号" value="ouzai888" /></div>
       <div class="field"><span>🔒</span><input id="p" type="password" placeholder="登录密码" value="a321321" /></div>
       <button onclick="login()">立即登录</button>
@@ -125,7 +125,7 @@
 
   <div class="app" id="app">
     <div class="top">
-      <div class="brand">连单系统 v1.0</div>
+      <div class="brand" id="brand">连单系统 v1.0</div>
       <div class="top-link active" id="navUsers" onclick="show('users')">管理中心</div>
       <div class="top-link" id="navStats" onclick="show('stats')">数据统计</div>
       <span class="pill">改图工具</span>
@@ -147,7 +147,7 @@
         </ul>
         <div class="group-title">财务系统</div>
         <ul class="menu">
-          <li onclick="show('payaddr', this)">前端充值地址</li>
+          <li class="super-only" onclick="show('payaddr', this)">前端充值地址</li>
           <li onclick="show('recharge', this)">充值订单</li>
           <li onclick="show('chain', this)">TRC20链上监控</li>
           <li onclick="show('withdraw', this)">提款订单</li>
@@ -155,6 +155,7 @@
         </ul>
         <div class="group-title">代理中心</div>
         <ul class="menu">
+          <li class="super-only" onclick="show('agents', this)">代理后台管理</li>
           <li onclick="show('review', this)">用户提现审核</li>
         </ul>
       </aside>
@@ -174,10 +175,26 @@
       users: "用户列表", workers: "做单账户管理", wallets: "提现地址",
       banks: "银行卡提现管理", dup: "用户查重", payaddr: "前端充值地址",
       recharge: "充值订单", chain: "TRC20链上监控", withdraw: "提款订单", changes: "钱包明细",
-      review: "用户提现审核", stats: "数据统计", stuckedit: "编辑卡单"
+      review: "用户提现审核", stats: "数据统计", stuckedit: "编辑卡单", agents: "代理后台管理"
     };
     const state = { page: "users", pageNo: 1, limit: 10, accountType: "", filters: {} };
     const cache = { users: [] };
+    const me = { role: "super", username: "" };
+    const isAgentPath = location.pathname.indexOf("/agent") === 0;
+    if (isAgentPath) {
+      loginTitle.textContent = "代理后台";
+      u.value = "";
+      u.placeholder = "代理账号";
+      p.value = "";
+    }
+    function isAgent() { return me.role === "agent"; }
+    function applyRole() {
+      document.querySelectorAll(".super-only").forEach((el) => {
+        el.style.display = isAgent() ? "none" : "";
+      });
+      brand.textContent = isAgent() ? "代理后台 v1.0" : "连单系统 v1.0";
+      adminName.textContent = (me.username || "") + (isAgent() ? "（代理）" : "");
+    }
 
     function toast(msg, err) {
       const el = document.getElementById("toast");
@@ -204,9 +221,11 @@
       if (res.code !== 1) return toast(res.info, 1);
       token.v = res.data.token;
       localStorage.setItem("admin_token", token.v);
+      me.role = res.data.role || "super";
+      me.username = res.data.username;
       document.getElementById("login").style.display = "none";
       document.getElementById("app").style.display = "block";
-      adminName.textContent = res.data.username;
+      applyRole();
       show("users");
       tick();
     }
@@ -229,6 +248,8 @@
       document.querySelectorAll(".top-link").forEach((x) => x.classList.remove("active"));
       (name === "stats" ? navStats : navUsers).classList.add("active");
       crumb.textContent = titles[name] || name;
+      if (name === "payaddr" && isAgent()) return toast("代理不能修改前端充值地址", 1);
+      if (name === "agents" && isAgent()) return toast("代理不能管理其他代理后台", 1);
       if (name === "users" || name === "workers") return renderUsers();
       if (name === "stats") return renderStats();
       if (name === "payaddr") return renderPayAddr();
@@ -240,6 +261,7 @@
       if (name === "banks") return renderUsersExtra("bank");
       if (name === "dup") return renderDup();
       if (name === "stuckedit") return renderStuckPage();
+      if (name === "agents") return renderAgents();
     }
 
     function collectFilters() {
@@ -332,6 +354,7 @@
           <span class="tag green">${typeName}</span><span class="tag blue">${esc(u.source_web || "Luxury")}</span>
           ${u.frozen ? '<span class="tag red">冻结</span>' : ""}<br>
           用户手机：${esc(u.phone)}<br>用户名：${esc(u.name)}<br>邀请码:${esc(u.yqm)}<br>
+          所属代理:${esc(u.agent_username || u.parent || "-")}<br>
           会员等级:${esc(u.vip_name)}<br>做单佣金:${esc(u.commission_rate)}%<br>
           ${u.remark ? `<div class="tag orange" style="white-space:normal;max-width:240px;line-height:1.4;margin:4px 0">备注：${esc(u.remark)}</div>` : `<div class="muted">备注：无</div>`}
           <button class="btn" onclick="openBank(${u.id})">银行卡信息</button>
@@ -397,6 +420,7 @@
         </div>
         <div class="row"><label>邀请码（可空）</label><input id="w_yqm" placeholder="自动生成"></div>
         <div class="row"><label>充值地址 TRC20（可空，空则用全局地址）</label><textarea id="w_pay" rows="2" placeholder="T..."></textarea></div>
+        ${!isAgent() ? `<div class="row"><label>所属代理（可空，填代理账号）</label><input id="w_parent" placeholder="例如 agent01，空则归主后台"></div>` : ""}
         <div class="row"><label>备注</label><textarea id="w_remark" rows="3" placeholder="后台备注，仅管理员可见"></textarea></div>
         <div class="actions">
           <button class="btn primary" onclick="saveWorker()">保存</button>
@@ -407,7 +431,8 @@
     async function saveWorker() {
       const res = await api("/admin/api/user/create", {
         phone: w_phone.value, name: w_name.value, password: w_pass.value, trade_password: w_trade.value,
-        amount: w_amt.value, vip_level: w_vip.value, yqm: w_yqm.value, accountType: 1, recharge_address: w_pay.value, remark: w_remark.value
+        amount: w_amt.value, vip_level: w_vip.value, yqm: w_yqm.value, accountType: 1, recharge_address: w_pay.value, remark: w_remark.value,
+        parent: document.getElementById("w_parent") ? w_parent.value : ""
       });
       if (res.code !== 1) return toast(res.info, 1);
       modal.className = "modal";
@@ -644,7 +669,7 @@
       content.innerHTML = `
         <div class="search">
           <button class="btn primary" onclick="openPayAddr()">新增充值地址</button>
-          <span class="muted">用户端只展示 TRC20。用户提交后进待审，链上 USDT 到账或后台点通过才入余额。</span>
+          <span class="muted">这是全局前端充值地址，只有主后台能改。代理后台没有这一页，代理名下用户优先用代理自己的收款地址。</span>
         </div>
         <div class="table-wrap"><table class="compact">
           <tr><th>ID</th><th>名称</th><th>网络</th><th>二维码</th><th>收款地址</th><th>默认</th><th>状态</th><th>排序</th><th>备注</th><th>操作</th></tr>
@@ -860,6 +885,76 @@
         ${Object.entries(map).map(([ip, phones]) => `<tr><td>${esc(ip)}</td><td>${esc(phones.join(", "))}</td></tr>`).join("")}
       </table></div>`;
     }
+    async function renderAgents() {
+      const res = await api("/admin/api/agents");
+      if (res.code !== 1) return toast(res.info, 1);
+      const list = res.data.list || [];
+      cache.agents = list;
+      content.innerHTML = `
+        <div class="search">
+          <button class="btn primary" onclick="openAgent()">开通代理后台</button>
+          <span class="muted">代理登录 /agent/ 或 /admin/。代理看不到也改不了前端充值地址，收款地址只能主后台改。</span>
+        </div>
+        <div class="table-wrap"><table class="compact">
+          <tr><th>ID</th><th>账号</th><th>名称</th><th>邀请码</th><th>充值地址</th><th>下级</th><th>状态</th><th>备注</th><th>操作</th></tr>
+          ${list.map((a) => `<tr>
+            <td>${a.id}</td>
+            <td>${esc(a.username)}</td>
+            <td>${esc(a.name || "")}</td>
+            <td>${esc(a.yqm || "-")}</td>
+            <td class="addr">${esc(a.recharge_address || "-")}</td>
+            <td>${a.user_count || 0}</td>
+            <td>${Number(a.enabled) ? '<span class="tag green">启用</span>' : '<span class="tag gray">关闭</span>'}</td>
+            <td>${esc(a.remark || "-")}</td>
+            <td>
+              <div class="ops">
+                <button class="btn" onclick="openAgent(${a.id})">编辑/改地址</button>
+                <button class="btn ${Number(a.enabled) ? "gray" : "primary"}" onclick="toggleAgent(${a.id},${Number(a.enabled)?0:1})">${Number(a.enabled)?"关闭":"开启"}</button>
+              </div>
+            </td>
+          </tr>`).join("") || "<tr><td colspan='9'>还没有代理，先开通一个</td></tr>"}
+        </table></div>`;
+    }
+    function openAgent(id) {
+      const row = (cache.agents || []).find((x) => String(x.id) === String(id)) || { id: "", username: "", name: "", password: "", yqm: "", recharge_address: "", enabled: 1, remark: "" };
+      modal.className = "modal show";
+      modal.innerHTML = `<div class="box">
+        <h3>${row.id ? "编辑代理后台" : "开通代理后台"}</h3>
+        <div class="row"><label>登录账号</label><input id="ag_user" value="${esc(row.username || "")}" ${row.id ? "readonly" : ""}></div>
+        <div class="row"><label>显示名称</label><input id="ag_name" value="${esc(row.name || "")}"></div>
+        <div class="row"><label>登录密码${row.id ? "（空=不改）" : ""}</label><input id="ag_pass" placeholder="${row.id ? "留空不改" : "默认123456"}"></div>
+        <div class="row"><label>邀请码（用户注册填这个归该代理）</label><input id="ag_yqm" value="${esc(row.yqm || "")}" placeholder="空则自动生成"></div>
+        <div class="row"><label>代理充值地址 TRC20</label><textarea id="ag_pay" rows="2" placeholder="该代理名下用户默认收款地址">${esc(row.recharge_address || "")}</textarea></div>
+        <div class="row"><label>状态</label>
+          <select id="ag_on">
+            <option value="1" ${Number(row.enabled)!==0?"selected":""}>启用</option>
+            <option value="0" ${Number(row.enabled)===0?"selected":""}>关闭</option>
+          </select>
+        </div>
+        <div class="row"><label>备注</label><textarea id="ag_remark" rows="2">${esc(row.remark || "")}</textarea></div>
+        <div class="actions">
+          <button class="btn primary" onclick="saveAgent('${row.id || ""}')">保存</button>
+          <button class="btn" onclick="modal.className='modal'">取消</button>
+        </div>
+      </div>`;
+    }
+    async function saveAgent(id) {
+      const payload = {
+        id, username: ag_user.value, name: ag_name.value, password: ag_pass.value,
+        yqm: ag_yqm.value, recharge_address: ag_pay.value, enabled: ag_on.value, remark: ag_remark.value
+      };
+      const res = await api("/admin/api/agent/save", payload);
+      if (res.code !== 1) return toast(res.info, 1);
+      modal.className = "modal";
+      toast(res.info || "已保存");
+      renderAgents();
+    }
+    async function toggleAgent(id, enabled) {
+      const res = await api("/admin/api/agent/action", { id, action: enabled ? "enable" : "disable" });
+      if (res.code !== 1) return toast(res.info, 1);
+      toast(res.info || "已处理");
+      renderAgents();
+    }
     async function renderStats() {
       const res = await api("/admin/api/stats");
       const d = res.data || {};
@@ -876,12 +971,23 @@
       rCount.textContent = s.data.pendingRecharge || 0;
       wCount.textContent = s.data.pendingWithdraw || 0;
     }
-    if (token.v) {
+    async function boot() {
+      if (!token.v) return;
+      const res = await api("/admin/api/me");
+      if (res.code !== 1) {
+        localStorage.removeItem("admin_token");
+        token.v = "";
+        return;
+      }
+      me.role = res.data.role || "super";
+      me.username = res.data.username;
       document.getElementById("login").style.display = "none";
       document.getElementById("app").style.display = "block";
+      applyRole();
       tick();
       show("users");
     }
+    boot();
   </script>
 </body>
 </html>

@@ -208,8 +208,17 @@ function collectionTrc20() {
   return String(row.address || "").trim();
 }
 
+function agentOfUser(user) {
+  if (!user) return null;
+  const name = String(user.agent_username || user.parent || "");
+  return (db.admins || []).find((a) => a.role === "agent" && a.username === name) || null;
+}
+
 function userCollectAddr(user) {
-  return String(user && user.recharge_address || "").trim();
+  const mine = String((user && user.recharge_address) || "").trim();
+  if (mine) return mine;
+  const ag = agentOfUser(user);
+  return String((ag && ag.recharge_address) || "").trim();
 }
 
 function rechargeAddrsFor(user) {
@@ -238,6 +247,10 @@ function watchAddresses() {
   (db.users || []).forEach((u) => {
     const a = userCollectAddr(u);
     if (a) set.add(a);
+  });
+  (db.admins || []).forEach((a) => {
+    const addr = String(a.recharge_address || "").trim();
+    if (addr) set.add(addr);
   });
   return [...set];
 }
@@ -317,8 +330,7 @@ function ingestChainTx(item) {
     matched_phone: "",
     status: "unmatched",
   };
-  const owner = (db.users || []).find((u) => userCollectAddr(u) === rec.to) || null;
-  const pending = matchPendingRecharge(usdt, { uid: owner && owner.id, to: rec.to });
+  const pending = matchPendingRecharge(usdt, { to: rec.to });
   if (pending) {
     rec.matched_id = pending.id;
     rec.matched_phone = pending.phone;
@@ -413,7 +425,7 @@ function ensureRechargeStore() {
 
 function seed() {
   return {
-    admins: [{ username: "ouzai888", password: "a321321", name: "ouzai888" }],
+    admins: [{ id: 1, username: "ouzai888", password: "a321321", name: "ouzai888", role: "super", enabled: 1, yqm: "", recharge_address: "", remark: "" }],
     rechargeAddresses: defaultRechargeAddresses(),
     nextAddr: 5,
     users: [
@@ -545,11 +557,28 @@ ensureRechargeStore();
 ensureUserFlags();
 ensureStuckStore();
 ensureChainStore();
+ensureAdminStore();
 
 function ensureStuckStore() {
   if (!Array.isArray(db.stuckPlans)) db.stuckPlans = [];
   const maxId = db.stuckPlans.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0);
   if (!db.nextPlan || db.nextPlan <= maxId) db.nextPlan = maxId + 1;
+}
+
+function ensureAdminStore() {
+  if (!Array.isArray(db.admins)) db.admins = [];
+  if (!db.adminTokens || typeof db.adminTokens !== "object") db.adminTokens = {};
+  db.admins.forEach((a, i) => {
+    if (!a.id) a.id = i + 1;
+    if (!a.role) a.role = a.username === "ouzai888" ? "super" : "agent";
+    if (a.enabled == null) a.enabled = 1;
+    if (a.yqm == null) a.yqm = a.role === "agent" ? String(8000000 + a.id) : "";
+    if (a.recharge_address == null) a.recharge_address = "";
+    if (a.remark == null) a.remark = "";
+    if (!a.name) a.name = a.username;
+  });
+  const maxId = db.admins.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0);
+  if (!db.nextAdmin || db.nextAdmin <= maxId) db.nextAdmin = maxId + 1;
 }
 
 function parseSlash(raw) {
@@ -712,6 +741,7 @@ function ensureUserFlags() {
     if (u.status == null) u.status = u.frozen ? 0 : 1;
     if (u.recharge_address == null) u.recharge_address = "";
     if (u.remark == null) u.remark = "";
+    if (u.agent_username == null) u.agent_username = "";
   });
   if (dirty) saveDb();
 }
@@ -869,6 +899,50 @@ function findAdmin(req) {
   const name = db.adminTokens[t];
   return db.admins.find((a) => a.username === name) || null;
 }
+function isSuper(admin) {
+  return !!(admin && admin.role !== "agent");
+}
+function belongsToAgent(user, admin) {
+  if (!user || !admin) return false;
+  return user.parent === admin.username || user.agent_username === admin.username;
+}
+function scopedUsers(admin) {
+  if (isSuper(admin)) return db.users.slice();
+  return db.users.filter((u) => belongsToAgent(u, admin));
+}
+function scopedRows(admin, rows) {
+  const list = rows || [];
+  if (isSuper(admin)) return list.slice();
+  const ids = new Set(scopedUsers(admin).map((u) => u.id));
+  return list.filter((r) => ids.has(r.uid));
+}
+function needAdmin(req) {
+  const admin = findAdmin(req);
+  if (!admin) return { err: fail("请先登录后台") };
+  if (Number(admin.enabled) === 0) return { err: fail("账号已关闭") };
+  return { admin };
+}
+function needSuper(req, msg) {
+  const r = needAdmin(req);
+  if (r.err) return r;
+  if (!isSuper(r.admin)) return { err: fail(msg || "代理无权限") };
+  return r;
+}
+function adminTouchUser(req, uid) {
+  const r = needAdmin(req);
+  if (r.err) return r;
+  const user = db.users.find((u) => String(u.id) === String(uid));
+  if (!user) return { err: fail("用户不存在"), admin: r.admin };
+  if (!isSuper(r.admin) && !belongsToAgent(user, r.admin)) return { err: fail("无权操作该用户"), admin: r.admin };
+  return { admin: r.admin, user };
+}
+function publicAdmin(a) {
+  const { password, ...rest } = a || {};
+  rest.role = a && a.role === "agent" ? "agent" : "super";
+  rest.enabled = Number(a && a.enabled) ? 1 : 0;
+  rest.user_count = a && a.role === "agent" ? db.users.filter((u) => belongsToAgent(u, a)).length : db.users.length;
+  return rest;
+}
 function body(req) {
   return Object.assign({}, req.query, req.body || {});
 }
@@ -929,10 +1003,13 @@ both("/data/api.login/register", (req) => {
   const b = body(req);
   const phone = String(b.mobile || b.phone || b.email || "").trim();
   const password = String(b.password || "");
-  const invite = String(b.invite_code || b.yqm || "");
+  const invite = String(b.invite_code || b.yqm || "").trim();
   if (!phone || password.length < 6) return fail("Invalid account or password");
   if (db.users.some((u) => u.phone === phone)) return fail("Account already exists");
-  const parent = db.users.find((u) => u.yqm === invite);
+  const parentUser = db.users.find((u) => u.yqm === invite);
+  const parentAgent = (db.admins || []).find(
+    (a) => a.role === "agent" && Number(a.enabled) !== 0 && (a.yqm === invite || a.username === invite)
+  );
   const id = db.nextUser++;
   const user = {
     id,
@@ -983,7 +1060,8 @@ both("/data/api.login/register", (req) => {
     source_web: "Luxury",
     frozen: 0,
     login_count: 0,
-    parent: parent ? parent.phone : "ouzai888",
+    parent: parentAgent ? parentAgent.username : parentUser ? parentUser.phone : "ouzai888",
+    agent_username: parentAgent ? parentAgent.username : (parentUser && parentUser.agent_username) || "",
   };
   db.users.push(user);
   saveDb();
@@ -1329,17 +1407,76 @@ both("/admin/api/login", (req) => {
   const b = body(req);
   const admin = db.admins.find((a) => a.username === b.username && a.password === b.password);
   if (!admin) return fail("账号或密码错误");
+  if (Number(admin.enabled) === 0) return fail("账号已关闭");
   const t = token();
   db.adminTokens[t] = admin.username;
   saveDb();
-  return ok({ token: t, username: admin.username });
+  return ok({ token: t, username: admin.username, role: admin.role || "super", name: admin.name || admin.username, yqm: admin.yqm || "" });
+});
+both("/admin/api/me", (req) => {
+  const { admin, err } = needAdmin(req);
+  if (err) return err;
+  return ok(publicAdmin(admin));
+});
+both("/admin/api/agents", (req) => {
+  const { err } = needSuper(req, "代理不能管理其他代理后台");
+  if (err) return err;
+  const list = (db.admins || []).filter((a) => a.role === "agent").map(publicAdmin);
+  return ok({ list, page: { current: 1, total: list.length } });
+});
+both("/admin/api/agent/save", (req) => {
+  const { err } = needSuper(req, "只有主后台能开代理后台");
+  if (err) return err;
+  const b = body(req);
+  const username = String(b.username || "").trim();
+  if (!username) return fail("请填写代理账号");
+  let row = db.admins.find((a) => String(a.id) === String(b.id) || a.username === username);
+  if (row && row.role === "super") return fail("不能改主后台账号");
+  if (!row) {
+    if (db.admins.some((a) => a.username === username)) return fail("账号已存在");
+    row = {
+      id: db.nextAdmin++,
+      username,
+      role: "agent",
+      enabled: 1,
+      yqm: "",
+      recharge_address: "",
+      remark: "",
+    };
+    db.admins.push(row);
+  }
+  if (b.password) row.password = String(b.password);
+  if (!row.password) row.password = "123456";
+  row.name = String(b.name || row.name || username);
+  row.enabled = b.enabled === undefined || b.enabled === "" ? Number(row.enabled ? 1 : 0) : Number(b.enabled) ? 1 : 0;
+  row.yqm = String(b.yqm || row.yqm || 8000000 + row.id);
+  if (b.recharge_address != null) row.recharge_address = String(b.recharge_address).trim();
+  if (b.remark != null) row.remark = String(b.remark);
+  saveDb();
+  return ok(publicAdmin(row), "代理后台已保存");
+});
+both("/admin/api/agent/action", (req) => {
+  const { err } = needSuper(req, "只有主后台能操作代理");
+  if (err) return err;
+  const b = body(req);
+  const row = db.admins.find((a) => String(a.id) === String(b.id) || a.username === b.username);
+  if (!row || row.role !== "agent") return fail("代理不存在");
+  if (b.action === "enable") row.enabled = 1;
+  if (b.action === "disable") row.enabled = 0;
+  if (b.action === "delete") {
+    db.admins = db.admins.filter((a) => a.id !== row.id);
+    saveDb();
+    return ok({}, "已删除");
+  }
+  if (b.recharge_address != null) row.recharge_address = String(b.recharge_address).trim();
+  saveDb();
+  return ok(publicAdmin(row), b.action === "disable" ? "已关闭" : "已保存");
 });
 both("/admin/api/users", (req) => {
-  if (!findAdmin(req) && !req.query.skipAuth) {
-    /* local demo: still return if header missing after first paint */
-  }
+  const { admin, err } = needAdmin(req);
+  if (err) return err;
   const b = body(req);
-  let list = db.users.map((u) => {
+  let list = scopedUsers(admin).map((u) => {
     const pending = pendingOrder(u);
     const recharges = db.recharges.filter((x) => x.uid === u.id && Number(x.status) === 1).reduce((s, x) => s + Number(x.amount), 0);
     const withdraws = db.withdraws.filter((x) => x.uid === u.id).reduce((s, x) => s + Number(x.amount), 0);
@@ -1376,8 +1513,10 @@ both("/admin/api/users", (req) => {
 });
 both("/admin/api/user/action", (req) => {
   const b = body(req);
-  const user = db.users.find((u) => String(u.id) === String(b.id));
-  if (!user) return fail("用户不存在");
+  const touched = adminTouchUser(req, b.id);
+  if (touched.err) return touched.err;
+  const user = touched.user;
+  const admin = touched.admin;
   let info = "ok";
   if (b.action === "grab") {
     const next = b.value !== undefined && b.value !== "" ? Number(b.value) : user.grab_enabled ? 0 : 1;
@@ -1449,6 +1588,11 @@ both("/admin/api/user/action", (req) => {
     if (b.address != null) user.address = String(b.address);
     if (b.recharge_address != null) user.recharge_address = String(b.recharge_address).trim();
     if (b.remark != null) user.remark = String(b.remark);
+    if (isSuper(admin) && b.parent != null && b.parent !== "") {
+      user.parent = String(b.parent);
+      const ag = (db.admins || []).find((a) => a.role === "agent" && a.username === user.parent);
+      user.agent_username = ag ? ag.username : "";
+    }
     refreshDifference(user);
     info = "用户资料已保存";
   }
@@ -1456,6 +1600,8 @@ both("/admin/api/user/action", (req) => {
   return ok(publicUser(user), info);
 });
 both("/admin/api/user/create", (req) => {
+  const { admin, err } = needAdmin(req);
+  if (err) return err;
   const b = body(req);
   const phone = String(b.phone || b.mobile || "").trim();
   const password = String(b.password || "123456");
@@ -1512,7 +1658,8 @@ both("/admin/api/user/create", (req) => {
     login_count: 0,
     last_ip: "-",
     register_ip: "-",
-    parent: String(b.parent || "ouzai888"),
+    parent: isSuper(admin) ? String(b.parent || "ouzai888") : admin.username,
+    agent_username: isSuper(admin) ? String(b.agent_username || (b.parent || "")) : admin.username,
   };
   db.users.push(user);
   saveDb();
@@ -1520,8 +1667,9 @@ both("/admin/api/user/create", (req) => {
 });
 both("/admin/api/stuck/list", (req) => {
   const uid = Number(body(req).uid || body(req).id);
-  const user = db.users.find((u) => u.id === uid);
-  if (!user) return fail("用户不存在");
+  const touched = adminTouchUser(req, uid);
+  if (touched.err) return touched.err;
+  const user = touched.user;
   syncStuckFlag(user);
   const list = (db.stuckPlans || [])
     .filter((p) => p.uid === uid)
@@ -1540,8 +1688,9 @@ both("/admin/api/stuck/list", (req) => {
 });
 both("/admin/api/stuck/save", (req) => {
   const b = body(req);
-  const user = db.users.find((u) => String(u.id) === String(b.uid || b.id));
-  if (!user) return fail("用户不存在");
+  const touched = adminTouchUser(req, b.uid || b.id);
+  if (touched.err) return touched.err;
+  const user = touched.user;
   const type = String(b.type || "normal");
   if (!["multi", "normal", "special", "split"].includes(type)) return fail("卡单类型不对");
   const current_number = String(b.current_number || "").trim();
@@ -1584,7 +1733,9 @@ both("/admin/api/stuck/action", (req) => {
   const b = body(req);
   const row = (db.stuckPlans || []).find((p) => String(p.id) === String(b.id));
   if (!row) return fail("记录不存在");
-  const user = db.users.find((u) => u.id === row.uid);
+  const touched = adminTouchUser(req, row.uid);
+  if (touched.err) return touched.err;
+  const user = touched.user;
   if (b.action === "delete" || b.action === "cancel") {
     row.status = 2;
     if (user) {
@@ -1601,11 +1752,23 @@ both("/admin/api/stuck/action", (req) => {
   saveDb();
   return ok(row, "已取消");
 });
-both("/admin/api/recharge-addresses", () => {
+both("/admin/api/recharge-addresses", (req) => {
+  const { admin, err } = needAdmin(req);
+  if (err) return err;
+  if (!isSuper(admin)) {
+    return ok({
+      list: [],
+      locked: 1,
+      agent_address: admin.recharge_address || "",
+      page: { current: 1, total: 0 },
+    });
+  }
   const list = (db.rechargeAddresses || []).slice().sort((a, b) => Number(a.sort || 0) - Number(b.sort || 0) || a.id - b.id);
   return ok({ list, page: { current: 1, total: list.length } });
 });
 both("/admin/api/recharge-address/save", (req) => {
+  const { err } = needSuper(req, "代理不能修改前端充值地址");
+  if (err) return err;
   const b = body(req);
   const type = String(b.type || "TRC20").trim().toUpperCase();
   const address = String(b.address || "").trim();
@@ -1640,6 +1803,8 @@ both("/admin/api/recharge-address/save", (req) => {
   return ok(row, "已保存，前端充值页立即生效");
 });
 both("/admin/api/recharge-address/action", (req) => {
+  const { err } = needSuper(req, "代理不能修改前端充值地址");
+  if (err) return err;
   const b = body(req);
   const row = db.rechargeAddresses.find((x) => String(x.id) === String(b.id));
   if (!row) return fail("地址不存在");
@@ -1664,8 +1829,10 @@ both("/admin/api/recharge-address/action", (req) => {
   return ok(row);
 });
 both("/admin/api/recharges", (req) => {
+  const { admin, err } = needAdmin(req);
+  if (err) return err;
   const b = body(req);
-  let list = (db.recharges || []).slice();
+  let list = scopedRows(admin, db.recharges || []);
   const st = b.status === undefined || b.status === "" ? "" : String(b.status);
   if (st === "0" || st === "pending") list = list.filter((x) => Number(x.status) === 0);
   else if (st === "1" || st === "success") list = list.filter((x) => Number(x.status) === 1);
@@ -1678,6 +1845,8 @@ both("/admin/api/recharge/review", (req) => {
   const b = body(req);
   const row = db.recharges.find((x) => String(x.id) === String(b.id));
   if (!row) return fail("记录不存在");
+  const touched = adminTouchUser(req, row.uid);
+  if (touched.err) return touched.err;
   if (Number(b.status) === 2 || b.action === "reject") {
     if (Number(row.status) === 1) return fail("已入账不能拒绝");
     row.status = 2;
@@ -1716,11 +1885,17 @@ both("/admin/api/chain/ingest", (req) => {
   if (!r.ok && r.info !== "duplicate") return fail(r.info);
   return ok(r, r.info === "duplicate" ? "重复交易" : "已录入");
 });
-both("/admin/api/withdraws", (req) => ok(pageWrap(db.withdraws, body(req).page, 10)));
+both("/admin/api/withdraws", (req) => {
+  const { admin, err } = needAdmin(req);
+  if (err) return err;
+  return ok(pageWrap(scopedRows(admin, db.withdraws), body(req).page, 10));
+});
 both("/admin/api/withdraw/review", (req) => {
   const b = body(req);
   const row = db.withdraws.find((x) => String(x.id) === String(b.id));
   if (!row) return fail("记录不存在");
+  const touched = adminTouchUser(req, row.uid);
+  if (touched.err) return touched.err;
   if (b.status === "1" || b.status === 1) {
     row.status = 1;
     row.status_str = "success";
@@ -1733,17 +1908,31 @@ both("/admin/api/withdraw/review", (req) => {
   saveDb();
   return ok(row);
 });
-both("/admin/api/changes", (req) => ok(pageWrap(db.changes, body(req).page, 10)));
-both("/admin/api/orders", (req) => ok(pageWrap(db.orders, body(req).page, 10)));
-both("/admin/api/stats", () =>
-  ok({
-    users: db.users.length,
-    recharge: db.recharges.filter((x) => Number(x.status) === 1).reduce((s, x) => s + Number(x.amount), 0),
-    withdraw: db.withdraws.reduce((s, x) => s + Number(x.amount), 0),
-    pendingWithdraw: db.withdraws.filter((x) => x.status === 0).length,
-    pendingRecharge: db.recharges.filter((x) => x.status === 0).length,
-  })
-);
+both("/admin/api/changes", (req) => {
+  const { admin, err } = needAdmin(req);
+  if (err) return err;
+  return ok(pageWrap(scopedRows(admin, db.changes), body(req).page, 10));
+});
+both("/admin/api/orders", (req) => {
+  const { admin, err } = needAdmin(req);
+  if (err) return err;
+  return ok(pageWrap(scopedRows(admin, db.orders), body(req).page, 10));
+});
+both("/admin/api/stats", (req) => {
+  const { admin, err } = needAdmin(req);
+  if (err) return err;
+  const users = scopedUsers(admin);
+  const ids = new Set(users.map((u) => u.id));
+  const recharges = (db.recharges || []).filter((x) => ids.has(x.uid));
+  const withdraws = (db.withdraws || []).filter((x) => ids.has(x.uid));
+  return ok({
+    users: users.length,
+    recharge: recharges.filter((x) => Number(x.status) === 1).reduce((s, x) => s + Number(x.amount), 0),
+    withdraw: withdraws.reduce((s, x) => s + Number(x.amount), 0),
+    pendingWithdraw: withdraws.filter((x) => x.status === 0).length,
+    pendingRecharge: recharges.filter((x) => x.status === 0).length,
+  });
+});
 
 app.get("/qr", async (req, res) => {
   try {
@@ -1764,14 +1953,16 @@ app.get("/qr", async (req, res) => {
   }
 });
 app.use("/admin", express.static(ADMIN));
+app.use("/agent", express.static(ADMIN));
 app.use(express.static(PUBLIC));
-app.get(/^\/(?!data\/|admin\/|assets\/|qr).*/, (_req, res) => {
+app.get(/^\/(?!data\/|admin\/|agent\/|assets\/|qr).*/, (_req, res) => {
   res.sendFile(path.join(PUBLIC, "index.html"));
 });
 
 app.listen(PORT, () => {
   console.log(`XA-LUXURY clone  http://127.0.0.1:${PORT}`);
   console.log(`Admin             http://127.0.0.1:${PORT}/admin/`);
+  console.log(`Agent             http://127.0.0.1:${PORT}/agent/`);
   console.log(`User  2222 / 123456`);
   console.log(`Admin ouzai888 / a321321`);
   console.log(`TRC20 watch       ${collectionTrc20() || "(no address)"}`);
