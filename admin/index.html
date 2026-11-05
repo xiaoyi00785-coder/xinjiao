@@ -144,6 +144,7 @@
         <ul class="menu">
           <li onclick="show('payaddr', this)">前端充值地址</li>
           <li onclick="show('recharge', this)">充值订单</li>
+          <li onclick="show('chain', this)">TRC20链上监控</li>
           <li onclick="show('withdraw', this)">提款订单</li>
           <li onclick="show('changes', this)">钱包明细</li>
         </ul>
@@ -167,7 +168,7 @@
     const titles = {
       users: "用户列表", workers: "做单账户管理", wallets: "提现地址",
       banks: "银行卡提现管理", dup: "用户查重", payaddr: "前端充值地址",
-      recharge: "充值订单", withdraw: "提款订单", changes: "钱包明细",
+      recharge: "充值订单", chain: "TRC20链上监控", withdraw: "提款订单", changes: "钱包明细",
       review: "用户提现审核", stats: "数据统计", stuckedit: "编辑卡单"
     };
     const state = { page: "users", pageNo: 1, limit: 10, accountType: "", filters: {} };
@@ -226,7 +227,8 @@
       if (name === "users" || name === "workers") return renderUsers();
       if (name === "stats") return renderStats();
       if (name === "payaddr") return renderPayAddr();
-      if (name === "recharge") return renderSimple("recharges", ["id","phone","amount","type","status_str","time"]);
+      if (name === "recharge") return renderRecharge();
+      if (name === "chain") return renderChain();
       if (name === "withdraw" || name === "review") return renderWithdraw();
       if (name === "changes") return renderSimple("changes", ["id","phone","type","amount","after","remark","time"]);
       if (name === "wallets") return renderUsersExtra("address");
@@ -600,7 +602,7 @@
       content.innerHTML = `
         <div class="search">
           <button class="btn primary" onclick="openPayAddr()">新增充值地址</button>
-          <span class="muted">用户端只展示 TRC20。填金额点提交就自动到账，不用上传凭证。</span>
+          <span class="muted">用户端只展示 TRC20。用户提交后进待审，链上 USDT 到账或后台点通过才入余额。</span>
         </div>
         <div class="table-wrap"><table class="compact">
           <tr><th>ID</th><th>名称</th><th>网络</th><th>二维码</th><th>收款地址</th><th>默认</th><th>状态</th><th>排序</th><th>备注</th><th>操作</th></tr>
@@ -680,6 +682,65 @@
       if (res.code !== 1) return toast(res.info, 1);
       renderPayAddr();
     }
+    function statusTag(s) {
+      const t = String(s || "");
+      if (t === "success" || t === "credited" || t === "confirmed") return `<span class="tag green">${esc(t)}</span>`;
+      if (t === "pending" || t === "unmatched" || t === "matched") return `<span class="tag orange">${esc(t)}</span>`;
+      if (t === "rejected") return `<span class="tag red">${esc(t)}</span>`;
+      return esc(t || "-");
+    }
+    async function renderRecharge() {
+      const res = await api("/admin/api/recharges", { page: 1 });
+      const list = res.data.list || [];
+      content.innerHTML = `
+        <div class="search"><span class="muted">用户提交只生成待审单。点通过才加余额；链上监控匹配到同金额待审单也会自动入账。</span></div>
+        <div class="table-wrap"><table class="compact">
+          <tr><th>ID</th><th>用户</th><th>金额</th><th>网络</th><th>状态</th><th>链上</th><th>Tx</th><th>时间</th><th>操作</th></tr>
+          ${list.map((r) => `<tr>
+            <td>${r.id}</td><td>${esc(r.phone)}</td><td>${r.amount}</td><td>${esc(r.type)}</td>
+            <td>${statusTag(r.status_str)}</td>
+            <td>${statusTag(r.chain_status || (Number(r.status)===1 && r.review_by==="chain" ? "confirmed" : ""))}</td>
+            <td class="addr">${r.tx ? `<a href="https://tronscan.org/#/transaction/${esc(r.tx)}" target="_blank">${esc(String(r.tx).slice(0,12))}...</a>` : "-"}</td>
+            <td>${esc(r.time)}</td>
+            <td>${Number(r.status)===0 ? `<button class="btn primary" onclick="reviewRecharge(${r.id},1)">通过</button>
+              <button class="btn red" onclick="reviewRecharge(${r.id},2)">拒绝</button>` : "-"}</td>
+          </tr>`).join("") || "<tr><td colspan='9'>暂无数据</td></tr>"}
+        </table></div>`;
+    }
+    async function reviewRecharge(id, status) {
+      const res = await api("/admin/api/recharge/review", { id, status });
+      if (res.code !== 1) return toast(res.info, 1);
+      toast(res.info || "已处理");
+      renderRecharge();
+      refreshBadges();
+    }
+    async function renderChain() {
+      const res = await api("/admin/api/chain/txs");
+      const d = res.data || {};
+      const w = d.watch || {};
+      const list = d.list || [];
+      content.innerHTML = `
+        <div class="search">
+          <button class="btn primary" onclick="syncChain()">立即同步</button>
+          <span class="muted">收款 ${esc(d.address || "-")} ｜ 上次 ${esc(w.lastPoll || "-")} ｜ ${esc(w.lastError || "正常")} ｜ 待审 ${d.pending || 0}</span>
+        </div>
+        <div class="table-wrap"><table class="compact">
+          <tr><th>时间</th><th>金额 USDT</th><th>From</th><th>Tx</th><th>匹配用户</th><th>状态</th></tr>
+          ${list.map((r) => `<tr>
+            <td>${esc(r.time)}</td><td>${r.amount}</td>
+            <td class="addr">${esc(r.from || "-")}</td>
+            <td class="addr">${r.txid ? `<a href="https://tronscan.org/#/transaction/${esc(r.txid)}" target="_blank">${esc(String(r.txid).slice(0,14))}...</a>` : "-"}</td>
+            <td>${esc(r.matched_phone || "-")}</td>
+            <td>${statusTag(r.status)}</td>
+          </tr>`).join("") || "<tr><td colspan='6'>还没有链上记录，点同步或等自动轮询</td></tr>"}
+        </table></div>`;
+    }
+    async function syncChain() {
+      const res = await api("/admin/api/chain/sync");
+      if (res.code !== 1) return toast(res.info, 1);
+      toast(res.info || "已同步");
+      renderChain();
+    }
     async function renderSimple(path, cols) {
       const res = await api("/admin/api/" + path, { page: 1 });
       const list = res.data.list || [];
@@ -735,11 +796,12 @@
         <div class="stat">总充值<b>${Number(d.recharge || 0).toFixed(4)}</b></div>
         <div class="stat">总提现<b>${Number(d.withdraw || 0).toFixed(4)}</b></div>
         <div class="stat">待审提现<b>${d.pendingWithdraw || 0}</b></div>
+        <div class="stat">待审充值<b>${d.pendingRecharge || 0}</b></div>
       </div>`;
     }
     async function refreshBadges() {
       const s = await api("/admin/api/stats");
-      rCount.textContent = Number(s.data.recharge || 0).toFixed(0);
+      rCount.textContent = s.data.pendingRecharge || 0;
       wCount.textContent = s.data.pendingWithdraw || 0;
     }
     if (token.v) {

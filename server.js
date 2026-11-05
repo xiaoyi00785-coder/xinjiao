@@ -8,6 +8,10 @@ const PORT = process.env.PORT || 5173;
 const DATA_FILE = path.join(__dirname, "data.json");
 const PUBLIC = path.join(__dirname, "public");
 const ADMIN = path.join(__dirname, "admin");
+const USDT_TRC20 = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+const TRONGRID = process.env.TRONGRID_URL || "https://api.trongrid.io";
+const TRONGRID_KEY = process.env.TRONGRID_API_KEY || "";
+const CHAIN_POLL_MS = Number(process.env.CHAIN_POLL_MS || 15000);
 
 const PRODUCTS = [
   { name: "Panadol", amount: 15.99, image: "/assets/goods1-wacp4OKz.png" },
@@ -199,6 +203,149 @@ function defaultRechargeAddr() {
   return list.find((x) => x.is_default) || list[0] || {};
 }
 
+function collectionTrc20() {
+  const row = defaultRechargeAddr();
+  return String(row.address || "").trim();
+}
+
+function ensureChainStore() {
+  if (!Array.isArray(db.recharges)) db.recharges = [];
+  if (!Array.isArray(db.chainTxs)) db.chainTxs = [];
+  if (!db.chainSeen || typeof db.chainSeen !== "object") db.chainSeen = {};
+  const maxId = db.recharges.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0);
+  if (!db.nextRecharge || db.nextRecharge <= maxId) db.nextRecharge = maxId + 1;
+  db.chainWatch = {
+    address: collectionTrc20(),
+    lastPoll: db.chainWatch?.lastPoll || "",
+    lastError: db.chainWatch?.lastError || "",
+    lastCount: Number(db.chainWatch?.lastCount || 0),
+  };
+}
+
+function creditRecharge(row, extra = {}) {
+  if (!row || Number(row.status) === 1) return { ok: false, info: "已入账" };
+  const user = db.users.find((u) => u.id === row.uid);
+  if (!user) return { ok: false, info: "用户不存在" };
+  const amt = Number(row.amount);
+  if (!(amt > 0)) return { ok: false, info: "金额无效" };
+  user.amount = money(Number(user.amount) + amt);
+  row.status = 1;
+  row.status_str = "success";
+  row.finish_time = nowStr();
+  if (extra.tx) row.tx = extra.tx;
+  if (extra.from) row.chain_from = extra.from;
+  row.chain_status = extra.chain_status || row.chain_status || "";
+  row.review_by = extra.review_by || "admin";
+  db.changes.unshift({
+    id: Date.now(),
+    uid: user.id,
+    phone: user.phone,
+    type: "recharge",
+    amount: money(amt),
+    after: user.amount,
+    time: nowStr(),
+    remark: extra.remark || "recharge approved",
+  });
+  saveDb();
+  return { ok: true, row, user };
+}
+
+function matchPendingRecharge(amount) {
+  const want = Number(money(amount));
+  const list = (db.recharges || []).filter((r) => Number(r.status) === 0 && Math.abs(Number(r.amount) - want) < 0.0001);
+  return list[list.length - 1] || null;
+}
+
+function ingestChainTx(item) {
+  const txid = String(item.txid || item.transaction_id || "").trim();
+  if (!txid) return { ok: false, info: "missing txid" };
+  if (db.chainSeen[txid]) return { ok: false, info: "duplicate", tx: db.chainTxs.find((x) => x.txid === txid) };
+  const decimals = item.decimals != null ? Number(item.decimals) : Number(item.token_info?.decimals || 6);
+  const raw = item.value != null ? item.value : item.amount;
+  const amount = Number(raw) / Math.pow(10, decimals);
+  if (!(amount > 0) && item.amountUsdt != null) {
+    /* already human units */
+  }
+  const usdt = item.amountUsdt != null ? Number(item.amountUsdt) : amount;
+  if (!(usdt > 0)) return { ok: false, info: "amount 0" };
+  const rec = {
+    txid,
+    from: String(item.from || ""),
+    to: String(item.to || collectionTrc20()),
+    amount: money(usdt),
+    time: item.time || nowStr(),
+    matched_id: "",
+    matched_phone: "",
+    status: "unmatched",
+  };
+  const pending = matchPendingRecharge(usdt);
+  if (pending) {
+    rec.matched_id = pending.id;
+    rec.matched_phone = pending.phone;
+    rec.status = "matched";
+    pending.tx = txid;
+    pending.chain_from = rec.from;
+    pending.chain_status = "confirmed";
+    pending.chain_time = rec.time;
+    const credited = creditRecharge(pending, {
+      tx: txid,
+      from: rec.from,
+      chain_status: "confirmed",
+      review_by: "chain",
+      remark: "TRC20 confirmed " + txid.slice(0, 10),
+    });
+    rec.status = credited.ok ? "credited" : rec.status;
+  }
+  db.chainSeen[txid] = 1;
+  db.chainTxs.unshift(rec);
+  if (db.chainTxs.length > 200) db.chainTxs = db.chainTxs.slice(0, 200);
+  saveDb();
+  return { ok: true, tx: rec, pending: pending || null };
+}
+
+async function pollTrc20() {
+  const addr = collectionTrc20();
+  db.chainWatch = db.chainWatch || {};
+  db.chainWatch.address = addr;
+  if (!addr) {
+    db.chainWatch.lastError = "no TRC20 collection address";
+    return;
+  }
+  try {
+    const url =
+      TRONGRID.replace(/\/$/, "") +
+      "/v1/accounts/" +
+      encodeURIComponent(addr) +
+      "/transactions/trc20?only_to=true&limit=40&contract_address=" +
+      USDT_TRC20;
+    const headers = { Accept: "application/json" };
+    if (TRONGRID_KEY) headers["TRON-PRO-API-KEY"] = TRONGRID_KEY;
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error("trongrid " + res.status);
+    const json = await res.json();
+    const list = Array.isArray(json.data) ? json.data : [];
+    let fresh = 0;
+    for (const item of list) {
+      const r = ingestChainTx(item);
+      if (r.ok) fresh += 1;
+    }
+    db.chainWatch.lastPoll = nowStr();
+    db.chainWatch.lastError = "";
+    db.chainWatch.lastCount = list.length;
+    db.chainWatch.lastFresh = fresh;
+    saveDb();
+  } catch (e) {
+    db.chainWatch.lastPoll = nowStr();
+    db.chainWatch.lastError = e.message || String(e);
+  }
+}
+
+function startChainWatch() {
+  if (process.env.DISABLE_CHAIN === "1") return;
+  pollTrc20();
+  setInterval(pollTrc20, CHAIN_POLL_MS);
+}
+
 function ensureRechargeStore() {
   if (!Array.isArray(db.rechargeAddresses) || !db.rechargeAddresses.length) {
     db.rechargeAddresses = defaultRechargeAddresses();
@@ -351,6 +498,7 @@ let db = loadDb();
 ensureRechargeStore();
 ensureUserFlags();
 ensureStuckStore();
+ensureChainStore();
 
 function ensureStuckStore() {
   if (!Array.isArray(db.stuckPlans)) db.stuckPlans = [];
@@ -887,31 +1035,22 @@ both("/data/api.user/userRecharge", (req) => {
   const amount = Number(b.amount || b.money || 0);
   if (!(amount > 0)) return fail("Invalid amount");
   const row = {
-    id: Date.now(),
+    id: db.nextRecharge++,
     uid: user.id,
     phone: user.phone,
     amount: money(amount),
     type: "TRC20",
-    status: 1,
-    status_str: "success",
+    status: 0,
+    status_str: "pending",
     time: nowStr(),
-    tx: token(),
+    tx: "",
     image: b.image || "",
+    chain_status: "",
+    collect: collectionTrc20(),
   };
   db.recharges.unshift(row);
-  user.amount = money(Number(user.amount) + amount);
-  db.changes.unshift({
-    id: Date.now(),
-    uid: user.id,
-    phone: user.phone,
-    type: "recharge",
-    amount: money(amount),
-    after: user.amount,
-    time: nowStr(),
-    remark: "TRC20 auto recharge",
-  });
   saveDb();
-  return ok(row, "Recharge success");
+  return ok(row, "Submitted, waiting review");
 });
 both("/data/api.user/queryRecharge", (req) => {
   const { user, err } = needUser(req);
@@ -1120,7 +1259,7 @@ both("/admin/api/users", (req) => {
   const b = body(req);
   let list = db.users.map((u) => {
     const pending = pendingOrder(u);
-    const recharges = db.recharges.filter((x) => x.uid === u.id).reduce((s, x) => s + Number(x.amount), 0);
+    const recharges = db.recharges.filter((x) => x.uid === u.id && Number(x.status) === 1).reduce((s, x) => s + Number(x.amount), 0);
     const withdraws = db.withdraws.filter((x) => x.uid === u.id).reduce((s, x) => s + Number(x.amount), 0);
     return {
       ...publicUser(u),
@@ -1437,6 +1576,48 @@ both("/admin/api/recharge-address/action", (req) => {
   return ok(row);
 });
 both("/admin/api/recharges", (req) => ok(pageWrap(db.recharges, body(req).page, 10)));
+both("/admin/api/recharge/review", (req) => {
+  const b = body(req);
+  const row = db.recharges.find((x) => String(x.id) === String(b.id));
+  if (!row) return fail("记录不存在");
+  if (Number(b.status) === 2 || b.action === "reject") {
+    if (Number(row.status) === 1) return fail("已入账不能拒绝");
+    row.status = 2;
+    row.status_str = "rejected";
+    row.review_by = "admin";
+    saveDb();
+    return ok(row, "已拒绝");
+  }
+  const r = creditRecharge(row, { review_by: "admin", remark: "admin approved recharge" });
+  if (!r.ok) return fail(r.info);
+  return ok(r.row, "已通过并入账");
+});
+both("/admin/api/chain/txs", () =>
+  ok({
+    watch: db.chainWatch || {},
+    address: collectionTrc20(),
+    list: db.chainTxs || [],
+    pending: (db.recharges || []).filter((x) => Number(x.status) === 0).length,
+  })
+);
+both("/admin/api/chain/sync", async (_req, res) => {
+  await pollTrc20();
+  res.json(ok({ watch: db.chainWatch || {}, list: (db.chainTxs || []).slice(0, 20) }, "已同步"));
+});
+both("/admin/api/chain/ingest", (req) => {
+  const b = body(req);
+  const r = ingestChainTx({
+    transaction_id: b.txid || b.transaction_id || "manual-" + Date.now(),
+    from: b.from || "",
+    to: b.to || collectionTrc20(),
+    amountUsdt: b.amount,
+    decimals: 0,
+    value: b.amount,
+    time: nowStr(),
+  });
+  if (!r.ok && r.info !== "duplicate") return fail(r.info);
+  return ok(r, r.info === "duplicate" ? "重复交易" : "已录入");
+});
 both("/admin/api/withdraws", (req) => ok(pageWrap(db.withdraws, body(req).page, 10)));
 both("/admin/api/withdraw/review", (req) => {
   const b = body(req);
@@ -1459,9 +1640,10 @@ both("/admin/api/orders", (req) => ok(pageWrap(db.orders, body(req).page, 10)));
 both("/admin/api/stats", () =>
   ok({
     users: db.users.length,
-    recharge: db.recharges.reduce((s, x) => s + Number(x.amount), 0),
+    recharge: db.recharges.filter((x) => Number(x.status) === 1).reduce((s, x) => s + Number(x.amount), 0),
     withdraw: db.withdraws.reduce((s, x) => s + Number(x.amount), 0),
     pendingWithdraw: db.withdraws.filter((x) => x.status === 0).length,
+    pendingRecharge: db.recharges.filter((x) => x.status === 0).length,
   })
 );
 
@@ -1494,4 +1676,6 @@ app.listen(PORT, () => {
   console.log(`Admin             http://127.0.0.1:${PORT}/admin/`);
   console.log(`User  2222 / 123456`);
   console.log(`Admin ouzai888 / a321321`);
+  console.log(`TRC20 watch       ${collectionTrc20() || "(no address)"}`);
+  startChainWatch();
 });
