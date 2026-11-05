@@ -723,7 +723,8 @@ function consumePlan(hit) {
 
 function buildPlanOrder(user, hit) {
   const p = hit.plan;
-  let amount = planAmount(p, hit.idx);
+  const extra = planAmount(p, hit.idx);
+  const amount = Number(user.amount) + extra;
   let goods = p.goods || "Combo Collection";
   let count = 1;
   if (p.type === "split") {
@@ -750,11 +751,12 @@ function buildPlanOrder(user, hit) {
     plan_id: p.id,
     plan_type: p.type,
     split_count: count,
+    stuck_extra: money(extra),
   };
   db.orders.unshift(order);
   consumePlan(hit);
   user.stuck_at = Number(user.task_number_today || 0) + 1;
-  user.stuck_amount = money(amount);
+  user.stuck_amount = money(extra);
   syncStuckFlag(user);
   refreshDifference(user);
   return order;
@@ -856,7 +858,8 @@ function clearStuck(user, dropOrder) {
 }
 
 function makeStuckOrder(user) {
-  const amount = Number(user.stuck_amount) || Number(user.amount) * 2 + 88;
+  const extra = Number(user.stuck_amount) || 88;
+  const amount = Number(user.amount) + extra;
   const commission = Number((amount * Number(user.commission_rate)) / 100);
   const order = {
     id: db.nextOrder++,

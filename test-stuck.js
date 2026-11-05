@@ -47,6 +47,23 @@ function assert(cond, msg) {
   async function submit(order) {
     return post("/data/api.order/submitOrder", { order_no: order.order_no, source_web: "Luxury" }, uh);
   }
+  async function bal() {
+    const info = await post("/data/api.user/getMemberInfo", {}, uh);
+    return Number(info.data.amount);
+  }
+  function eq(a, b, msg) {
+    assert(Math.abs(Number(a) - Number(b)) < 0.02, msg);
+  }
+  async function coverAndSubmit(order, extra) {
+    eq(order.diff_money, extra, "差额 want " + extra + " got " + order.diff_money);
+    const blocked = await submit(order);
+    assert(blocked.code !== 1, "没补差额不该能提交: " + blocked.info);
+    const top = await post("/admin/api/user/action", { id: uid, action: "change", amount: extra, remark: "cover stuck" }, admin);
+    assert(top.code === 1, "cover fail " + top.info);
+    const sub = await submit(order);
+    assert(sub.code === 1, "cover后提交失败 " + sub.info);
+    return sub;
+  }
 
   // 1 multi
   try {
@@ -56,22 +73,28 @@ function assert(cond, msg) {
       commission_type: "rate", commission_rate: "2",
     }, admin);
     assert(save.code === 1, "multi save fail: " + save.info);
+    let b0 = await bal();
     const a1 = await grab();
-    assert(Number(a1.data.amount) === 100 && a1.data.isHappy === 1, "multi #1 want 100 got " + a1.data.amount);
-    assert(Number(a1.data.commission) === 2, "multi #1 commission want 2 got " + a1.data.commission);
-    assert((await submit(a1.data)).code === 1, "multi submit #1 fail");
+    assert(a1.data.isHappy === 1, "multi #1 should stuck");
+    eq(a1.data.amount, b0 + 100, "multi #1 want " + (b0 + 100) + " got " + a1.data.amount);
+    eq(a1.data.commission, (b0 + 100) * 0.02, "multi #1 commission");
+    await coverAndSubmit(a1.data, 100);
     const a2 = await grab();
-    assert(a2.data.isHappy !== 1 && Number(a2.data.amount) !== 200, "multi #2 should be normal, got " + a2.data.amount);
+    assert(a2.data.isHappy !== 1, "multi #2 should be normal, got " + a2.data.amount);
     assert((await submit(a2.data)).code === 1, "multi submit #2 fail");
+    b0 = await bal();
     const a3 = await grab();
-    assert(Number(a3.data.amount) === 200 && a3.data.isHappy === 1, "multi #3 want 200 got " + a3.data.amount);
-    assert((await submit(a3.data)).code === 1, "multi submit #3 fail");
+    assert(a3.data.isHappy === 1, "multi #3 should stuck");
+    eq(a3.data.amount, b0 + 200, "multi #3 want " + (b0 + 200) + " got " + a3.data.amount);
+    await coverAndSubmit(a3.data, 200);
     const a4 = await grab();
     assert(a4.data.isHappy !== 1, "multi #4 should be normal");
     assert((await submit(a4.data)).code === 1, "multi submit #4 fail");
+    b0 = await bal();
     const a5 = await grab();
-    assert(Number(a5.data.amount) === 300 && a5.data.isHappy === 1, "multi #5 want 300 got " + a5.data.amount);
-    ok.push("多卡单 1/3/5 = 100/200/300 能用");
+    assert(a5.data.isHappy === 1, "multi #5 should stuck");
+    eq(a5.data.amount, b0 + 300, "multi #5 want " + (b0 + 300) + " got " + a5.data.amount);
+    ok.push("多卡单 1/3/5 差额 100/200/300，订单=余额+差额");
   } catch (e) {
     fails.push("多卡单: " + e.message);
   }
@@ -84,15 +107,20 @@ function assert(cond, msg) {
       commission_type: "rate", commission_rate: "10", number: 2,
     }, admin);
     assert(save.code === 1, "normal save fail: " + save.info);
+    let b0 = await bal();
     const b1 = await grab();
-    assert(Number(b1.data.amount) === 150 && Number(b1.data.commission) === 15, "normal #1 want 150/15 got " + b1.data.amount + "/" + b1.data.commission);
-    assert((await submit(b1.data)).code === 1, "normal submit #1 fail");
+    assert(b1.data.isHappy === 1, "normal #1 should stuck");
+    eq(b1.data.amount, b0 + 150, "normal #1 want " + (b0 + 150) + " got " + b1.data.amount);
+    eq(b1.data.commission, (b0 + 150) * 0.1, "normal #1 commission");
+    await coverAndSubmit(b1.data, 150);
+    b0 = await bal();
     const b2 = await grab();
-    assert(Number(b2.data.amount) === 150 && b2.data.isHappy === 1, "normal #2 want 150 got " + b2.data.amount);
-    assert((await submit(b2.data)).code === 1, "normal submit #2 fail");
+    assert(b2.data.isHappy === 1, "normal #2 should stuck");
+    eq(b2.data.amount, b0 + 150, "normal #2 want " + (b0 + 150) + " got " + b2.data.amount);
+    await coverAndSubmit(b2.data, 150);
     const b3 = await grab();
     assert(b3.data.isHappy !== 1, "normal #3 should be normal got " + b3.data.amount);
-    ok.push("常规卡单 第1单起连卡2次 150/10% 能用");
+    ok.push("常规卡单 第1单起连卡2次 差额150，订单=余额+150");
   } catch (e) {
     fails.push("常规卡单: " + e.message);
   }
@@ -121,9 +149,14 @@ function assert(cond, msg) {
       assert(o.data.isHappy !== 1, "#" + i + " 不该卡 got " + o.data.amount);
       assert((await submit(o.data)).code === 1, "submit #" + i);
     }
+    const before15 = await bal();
     const hit = await grab();
-    assert(Number(hit.data.amount) === 198 && hit.data.isHappy === 1, "第15单要198，got " + hit.data.amount + " happy=" + hit.data.isHappy);
-    ok.push("常规卡单 第15单198，第5单不提前、金额也对");
+    assert(hit.data.isHappy === 1, "第15单该卡");
+    eq(hit.data.amount, before15 + 198, "第15单要余额+198=" + (before15 + 198) + " got " + hit.data.amount);
+    eq(hit.data.diff_money, 198, "第15单差额要198 got " + hit.data.diff_money);
+    const blocked = await submit(hit.data);
+    assert(blocked.code !== 1, "没补198不该完成: " + blocked.info);
+    ok.push("常规卡单 第15单差额198，订单=余额+198，第5单不提前");
   } catch (e) {
     fails.push("常规卡单第15单: " + e.message);
   }
@@ -136,11 +169,12 @@ function assert(cond, msg) {
       commission_type: "rate", commission_rate: "5", goods: "Special Combo",
     }, admin);
     assert(save.code === 1, "special save fail: " + save.info);
+    const c0 = await bal();
     const c1 = await grab();
-    assert(Number(c1.data.amount) === 888 && c1.data.isHappy === 1, "special want 888 got " + c1.data.amount);
-    assert(Number(c1.data.commission) === 44.4, "special commission want 44.4 got " + c1.data.commission);
+    assert(c1.data.isHappy === 1, "special should stuck");
+    eq(c1.data.amount, c0 + 888, "special want " + (c0 + 888) + " got " + c1.data.amount);
     assert(String(c1.data.goods_name).includes("Special"), "special goods " + c1.data.goods_name);
-    assert((await submit(c1.data)).code === 1, "special submit fail");
+    await coverAndSubmit(c1.data, 888);
     const c2 = await grab();
     assert(c2.data.isHappy !== 1, "special second should be normal");
     ok.push("特殊卡单 第1单 888/5% 能用");
@@ -156,15 +190,35 @@ function assert(cond, msg) {
       commission_type: "rate", commission_rate: "10", number: 5,
     }, admin);
     assert(save.code === 1, "split save fail: " + save.info);
+    const d0 = await bal();
     const d1 = await grab();
-    assert(Number(d1.data.amount) === 500, "split want 100*5=500 got " + d1.data.amount);
-    assert(Number(d1.data.commission) === 50, "split commission want 50 got " + d1.data.commission);
     assert(d1.data.isHappy === 1 && String(d1.data.goods_name).includes("5"), "split goods " + d1.data.goods_name);
-    const sub = await submit(d1.data);
-    assert(sub.code === 1, "split submit fail " + sub.info);
-    ok.push("拆分订单 第1单 每次100 x5=500 能用");
+    eq(d1.data.amount, d0 + 500, "split want 余额+500 got " + d1.data.amount);
+    eq(d1.data.diff_money, 500, "split 差额要500 got " + d1.data.diff_money);
+    ok.push("拆分订单 每次差额100 x5，订单=余额+500");
   } catch (e) {
     fails.push("拆分订单: " + e.message);
+  }
+
+  try {
+    await wipe();
+    await post("/admin/api/user/action", { id: uid, action: "edit", amount: 500 }, admin);
+    const save = await post("/admin/api/stuck/save", {
+      uid, type: "normal", current_number: "1", over_money: "198",
+      commission_type: "rate", commission_rate: "10", number: 1,
+    }, admin);
+    assert(save.code === 1, "500+198 save fail " + save.info);
+    const o = await grab();
+    eq(o.data.amount, 698, "500+198 要出698 got " + o.data.amount);
+    eq(o.data.diff_money, 198, "差额要198 got " + o.data.diff_money);
+    const blocked = await submit(o.data);
+    assert(blocked.code !== 1, "500块不该过698的单");
+    await post("/admin/api/user/action", { id: uid, action: "change", amount: 198, remark: "cover 198" }, admin);
+    const sub = await submit(o.data);
+    assert(sub.code === 1, "补198后应能完成 " + sub.info);
+    ok.push("账户500卡198，出698，补198才能完成");
+  } catch (e) {
+    fails.push("余额加差额: " + e.message);
   }
 
   console.log("PASS");

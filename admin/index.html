@@ -390,7 +390,7 @@
           当前订单号:<br>${esc(u.current_order)}${u.current_order_happy ? ' <span class="tag orange">连单</span>' : ""}<br>
           ${u.current_order_amount ? "金额:" + u.current_order_amount + "<br>" : ""}
           进度:${esc(u.progress)}<br>
-          ${Number(u.stuck) ? `卡单第${u.stuck_at || "-"}单 / ${esc(u.stuck_amount || "-")}<br>` : ""}
+          ${Number(u.stuck) ? `卡单第${u.stuck_at || "-"}单 / 差额${esc(u.stuck_amount || "-")}<br>` : ""}
           <div class="ops">
             <button class="btn ${Number(u.grab_enabled) ? "gray" : "orange"}" onclick="act(${u.id},'grab')">
               ${Number(u.grab_enabled) ? "关闭抢单" : "开启抢单"}
@@ -482,7 +482,7 @@
           <div class="stuck-head">
             <div><div class="k">用户名</div><div class="v">${esc(u.name || "-")}</div></div>
             <div><div class="k">钱包金额 amount</div><div class="v">${esc(u.amount || "0.0000")}</div></div>
-            <div><div class="k">今日进度 / 下一张卡单</div><div class="v">${esc(res.data.progress || "0/0")}　${Number(u.stuck_at) ? "第" + u.stuck_at + "单 / " + esc(u.stuck_amount) : "暂无待执行卡单"}</div></div>
+            <div><div class="k">今日进度 / 下一张卡单</div><div class="v">${esc(res.data.progress || "0/0")}　${Number(u.stuck_at) ? "第" + u.stuck_at + "单差额 " + esc(u.stuck_amount) + "（订单=余额+" + esc(u.stuck_amount) + "）" : "暂无待执行卡单"}</div></div>
             <div><div class="k">手机号码</div><div class="v">${esc(u.phone || "-")}</div></div>
           </div>
           <div class="stuck-tools">
@@ -494,7 +494,7 @@
           <div class="plan-box">
             <div class="plan-title">计划订单记录</div>
             <div class="table-wrap"><table class="compact">
-              <tr><th>时间</th><th>类型</th><th>任务编号</th><th>卡单金额</th><th>返佣方式</th><th>佣金</th><th>次数/数量</th><th>状态</th><th>操作</th></tr>
+              <tr><th>时间</th><th>类型</th><th>任务编号</th><th>差额</th><th>返佣方式</th><th>佣金</th><th>次数/数量</th><th>状态</th><th>操作</th></tr>
               ${list.map((p) => `<tr>
                 <td>${esc(p.time)}</td>
                 <td>${esc(p.type_name)}</td>
@@ -527,8 +527,8 @@
           <div class="hint">${numberHint}</div>
         </div>` : "";
       const noHint = type === "multi" ? "如1/3/5，第1、3、5单各卡一次" : "卡第15单就填15，按今天已完成任务+1计算";
-      const moneyHint = type === "multi" ? "如100/200/300，和编号一一对应" : type === "split" ? "每件金额，如100" : "卡单显示的金额，如198";
-      const moneyLabel = type === "split" ? "每次金额 over_money" : "卡单金额 over_money";
+      const moneyHint = type === "multi" ? "如100/200/300，这是差额。余额500卡100则出600" : type === "split" ? "每件差额，如100，数量5则总差额500" : "差额。账户500卡198，第15单出698，要补198才能完成";
+      const moneyLabel = type === "split" ? "每件差额 over_money" : "卡单差额 over_money";
       const noLabel = type === "split" ? "订单进度编号 current_number" : "第几单触发 current_number";
       const extra = type === "special" ? `<div class="row"><div class="el-label">商品名称</div><input id="st_goods" placeholder="可空"></div>` : "";
       modal.className = "modal show";
