@@ -19,6 +19,14 @@ const swaps = [
     `[_.value==""?(ee(),le("div",dD,`,
     `[1?(ee(),le("div",dD,`,
   ],
+  [
+    `y=te(()=>["TRC20","ERC20","BTC"])`,
+    `y=te(()=>["TRC20"])`,
+  ],
+  [
+    `Y=async()=>{if(!c.image){ze(n("pages.recharge.upload_required"));return}const C={money:c.paramsForm.money||c.paramsForm.amount,image:c.image,type:i(c.type)};`,
+    `Y=async()=>{const C={money:c.paramsForm.money||c.paramsForm.amount,amount:c.paramsForm.money||c.paramsForm.amount,image:"auto",type:1};`,
+  ],
 ];
 
 for (const [from, to] of swaps) {

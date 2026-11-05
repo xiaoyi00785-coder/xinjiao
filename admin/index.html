@@ -600,7 +600,7 @@
       content.innerHTML = `
         <div class="search">
           <button class="btn primary" onclick="openPayAddr()">新增充值地址</button>
-          <span class="muted">改的是用户端充值页收款地址，保存后立刻生效。</span>
+          <span class="muted">用户端只展示 TRC20。填金额点提交就自动到账，不用上传凭证。</span>
         </div>
         <div class="table-wrap"><table class="compact">
           <tr><th>ID</th><th>名称</th><th>网络</th><th>二维码</th><th>收款地址</th><th>默认</th><th>状态</th><th>排序</th><th>备注</th><th>操作</th></tr>
@@ -635,7 +635,7 @@
           <input type="hidden" id="pa_id" value="${row.id || ""}">
           <div class="row"><label>显示名称</label><input id="pa_name" value="${esc(row.name || "")}"></div>
           <div class="row"><label>网络</label>
-            <select id="pa_type">${["TRC20","ERC20","BTC","BEP20","SOL"].map((t) => `<option ${row.type===t?"selected":""}>${t}</option>`).join("")}</select>
+            <select id="pa_type">${["TRC20"].map((t) => `<option ${row.type===t?"selected":""}>${t}</option>`).join("")}</select>
           </div>
           <div class="row"><label>收款地址</label><textarea id="pa_address" rows="3" oninput="previewPayQr()">${esc(row.address || "")}</textarea></div>
           <div class="row"><label>用户端二维码预览</label>

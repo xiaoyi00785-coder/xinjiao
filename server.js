@@ -189,6 +189,7 @@ function publicRechargeAddr(row) {
 function enabledRechargeAddrs() {
   return (db.rechargeAddresses || [])
     .filter((x) => Number(x.enabled) !== 0)
+    .filter((x) => String(x.type || "").toUpperCase() === "TRC20")
     .sort((a, b) => Number(a.sort || 0) - Number(b.sort || 0) || a.id - b.id)
     .map(publicRechargeAddr);
 }
@@ -883,18 +884,19 @@ both("/data/api.user/userRecharge", (req) => {
   const { user, err } = needUser(req);
   if (err) return err;
   const b = body(req);
-  const amount = Number(b.amount || 0);
-  if (amount <= 0) return fail("Invalid amount");
+  const amount = Number(b.amount || b.money || 0);
+  if (!(amount > 0)) return fail("Invalid amount");
   const row = {
     id: Date.now(),
     uid: user.id,
     phone: user.phone,
     amount: money(amount),
-    type: b.type || "TRC20",
+    type: "TRC20",
     status: 1,
     status_str: "success",
     time: nowStr(),
     tx: token(),
+    image: b.image || "",
   };
   db.recharges.unshift(row);
   user.amount = money(Number(user.amount) + amount);
@@ -906,10 +908,10 @@ both("/data/api.user/userRecharge", (req) => {
     amount: money(amount),
     after: user.amount,
     time: nowStr(),
-    remark: "user recharge",
+    remark: "TRC20 auto recharge",
   });
   saveDb();
-  return ok(row);
+  return ok(row, "Recharge success");
 });
 both("/data/api.user/queryRecharge", (req) => {
   const { user, err } = needUser(req);
