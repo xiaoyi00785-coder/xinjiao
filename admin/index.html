@@ -531,6 +531,22 @@
       const moneyLabel = type === "split" ? "每件差额 over_money" : "卡单差额 over_money";
       const noLabel = type === "split" ? "订单进度编号 current_number" : "第几单触发 current_number";
       const extra = type === "special" ? `<div class="row"><div class="el-label">商品名称</div><input id="st_goods" placeholder="可空"></div>` : "";
+      const commFixed = type === "multi" || type === "normal";
+      const commField = commFixed ? `
+        <div class="row">
+          <div class="el-label">佣金金额 commission_rate</div>
+          <input id="st_rate" placeholder="填多少拿多少">
+          <div class="hint">${type === "multi" ? "填多少拿多少。如10/20/30和第几单对应；只填一个数则每单都拿这个" : "填多少拿多少，比如50就是完成这单赚50，不是百分比"}</div>
+        </div>` : `
+        <div class="row">
+          <div class="el-label">返佣金额方式 commission_type <span class="hint" style="margin-left:6px">点击下拉，比例和固定金额可选</span></div>
+          ${commTypeSelect("st_ctype")}
+        </div>
+        <div class="row">
+          <div class="el-label">佣金比例 commission_rate</div>
+          <input id="st_rate" placeholder="请输入佣金比例">
+          <div class="hint">如10表示10%</div>
+        </div>`;
       modal.className = "modal show";
       modal.innerHTML = `<div class="box wide">
         <button class="x" onclick="modal.className='modal'">×</button>
@@ -545,15 +561,7 @@
           <input id="st_amt" placeholder="${type === "split" ? "每次金额" : "请输入卡单金额"}">
           <div class="hint">${moneyHint}</div>
         </div>
-        <div class="row">
-          <div class="el-label">返佣金额方式 commission_type <span class="hint" style="margin-left:6px">点击下拉，比例和固定金额可选</span></div>
-          ${commTypeSelect("st_ctype")}
-        </div>
-        <div class="row">
-          <div class="el-label">佣金比例 commission_rate</div>
-          <input id="st_rate" placeholder="请输入佣金比例">
-          <div class="hint">${type === "multi" ? "如2/3/5" : "如10表示10%"}</div>
-        </div>
+        ${commField}
         ${numField}
         ${extra}
         <div class="actions center">
@@ -566,7 +574,7 @@
       const res = await api("/admin/api/stuck/save", {
         uid: state.stuckUid, type,
         current_number: st_no.value, over_money: st_amt.value,
-        commission_type: st_ctype.value, commission_rate: st_rate.value,
+        commission_type: document.getElementById("st_ctype") ? st_ctype.value : "fixed", commission_rate: st_rate.value,
         number: document.getElementById("st_num") ? st_num.value : "",
         goods: document.getElementById("st_goods") ? st_goods.value : ""
       });

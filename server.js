@@ -636,9 +636,11 @@ function planTypeName(type) {
   return { multi: "多卡单", normal: "常规卡单", special: "特殊卡单", split: "拆分订单" }[type] || type;
 }
 
-function commissionOf(plan, amount) {
-  const n = Number(plan.commission_rate || 0);
-  if (String(plan.commission_type) === "fixed") return n;
+function commissionOf(plan, amount, idx) {
+  const parts = parseSlash(plan.commission_rate);
+  const n = Number(parts[idx] != null ? parts[idx] : parts[0] || 0);
+  const type = String(plan.type || "");
+  if (type === "multi" || type === "normal" || String(plan.commission_type) === "fixed") return n;
   return Number(((amount * n) / 100).toFixed(4));
 }
 
@@ -732,7 +734,7 @@ function buildPlanOrder(user, hit) {
     goods = `拆分订单 x${count}`;
   }
   if (p.type === "special") goods = p.goods || "Special Combo";
-  const commission = commissionOf(p, amount);
+  const commission = commissionOf(p, amount, hit.idx);
   const order = {
     id: db.nextOrder++,
     order_no: "L" + Date.now(),
@@ -1833,6 +1835,8 @@ both("/admin/api/stuck/save", (req) => {
     const n = parseSlash(current_number).length;
     const m = parseSlash(over_money).length;
     if (!n || n !== m) return fail("多卡单的任务编号和金额数量要一一对应，例如 1/3/5 配 100/200/300");
+    const c = parseSlash(b.commission_rate).length;
+    if (c > 1 && c !== n) return fail("多卡单佣金数量要和任务编号对应，例如 1/3/5 配 10/20/30，或只填一个金额");
   }
   const row = {
     id: db.nextPlan++,
@@ -1842,7 +1846,7 @@ both("/admin/api/stuck/save", (req) => {
     type_name: planTypeName(type),
     current_number,
     over_money,
-    commission_type: String(b.commission_type || "rate"),
+    commission_type: type === "multi" || type === "normal" ? "fixed" : String(b.commission_type || "rate"),
     commission_rate: String(b.commission_rate || "0"),
     number: Math.max(type === "normal" || type === "split" ? 1 : 0, Number(b.number || 0) || (type === "normal" || type === "split" ? 1 : 0)),
     goods: String(b.goods || ""),
