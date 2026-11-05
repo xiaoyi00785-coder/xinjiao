@@ -134,6 +134,7 @@
       <div class="badge">充值 <b id="rCount">0</b> 提现 <b id="wCount">0</b></div>
       <div>zh-cn</div>
       <div id="adminName">ouzai888</div>
+      <button class="btn" onclick="openMyPassword()">修改密码</button>
       <button class="btn" onclick="logout()">退出登录</button>
     </div>
     <div class="layout">
@@ -168,6 +169,7 @@
         </ul>
         <div class="group-title">代理中心</div>
         <ul class="menu">
+          <li class="super-only" onclick="show('admins', this)">后台账号密码</li>
           <li class="super-only" onclick="show('agents', this)">代理后台管理</li>
           <li onclick="show('review', this)">用户提现审核</li>
         </ul>
@@ -189,6 +191,7 @@
       banks: "银行卡提现管理", dup: "用户查重", payaddr: "前端充值地址",
       recharge: "充值订单", chain: "TRC20链上监控", withdraw: "提款订单", changes: "钱包明细",
       review: "用户提现审核", stats: "数据统计", stuckedit: "编辑卡单", agents: "代理后台管理",
+      admins: "后台账号密码",
       orders: "任务订单", carousel: "首页轮播", helps: "帮助中心", services: "客服设置",
       notice: "弹窗公告", qualification: "资质说明", levels: "VIP等级", products: "任务商品", prizes: "抽奖奖品"
     };
@@ -249,6 +252,89 @@
       localStorage.removeItem("admin_token");
       location.reload();
     }
+    function openMyPassword() {
+      modal.className = "modal show";
+      modal.innerHTML = `<div class="box">
+        <h3>修改登录密码 · ${esc(me.username || "")}</h3>
+        <div class="row"><label>原密码</label><input id="pw_old" type="password" placeholder="当前登录密码"></div>
+        <div class="row"><label>新密码</label><input id="pw_new" type="password" placeholder="至少4位"></div>
+        <div class="row"><label>确认新密码</label><input id="pw_new2" type="password" placeholder="再输一次"></div>
+        <div class="actions">
+          <button class="btn primary" onclick="saveMyPassword()">保存</button>
+          <button class="btn" onclick="modal.className='modal'">取消</button>
+        </div>
+      </div>`;
+    }
+    async function saveMyPassword() {
+      if (!pw_new.value || pw_new.value.length < 4) return toast("新密码至少4位", 1);
+      if (pw_new.value !== pw_new2.value) return toast("两次新密码不一致", 1);
+      const res = await api("/admin/api/password", { old_password: pw_old.value, password: pw_new.value });
+      if (res.code !== 1) return toast(res.info, 1);
+      modal.className = "modal";
+      toast(res.info || "密码已修改");
+    }
+    async function renderAdmins() {
+      const res = await api("/admin/api/admins");
+      if (res.code !== 1) return toast(res.info, 1);
+      const list = res.data.list || [];
+      cache.admins = list;
+      content.innerHTML = `
+        <div class="search">
+          <button class="btn primary" onclick="openAdminAcc()">新增后台账号</button>
+          <span class="muted">这里改总后台/代理的登录账号和密码。右上角「修改密码」是改当前登录的这个号。</span>
+        </div>
+        <div class="table-wrap"><table class="compact">
+          <tr><th>ID</th><th>账号</th><th>名称</th><th>角色</th><th>状态</th><th>备注</th><th>操作</th></tr>
+          ${list.map((a) => `<tr>
+            <td>${a.id}</td>
+            <td>${esc(a.username)}</td>
+            <td>${esc(a.name || "")}</td>
+            <td>${a.role === "agent" ? '<span class="tag orange">代理</span>' : '<span class="tag green">总后台</span>'}</td>
+            <td>${Number(a.enabled) ? '<span class="tag green">启用</span>' : '<span class="tag gray">关闭</span>'}</td>
+            <td>${esc(a.remark || "-")}</td>
+            <td>
+              <button class="btn" onclick="openAdminAcc(${a.id})">改密码/编辑</button>
+            </td>
+          </tr>`).join("") || "<tr><td colspan='7'>暂无账号</td></tr>"}
+        </table></div>`;
+    }
+    function openAdminAcc(id) {
+      const row = (cache.admins || []).find((x) => String(x.id) === String(id)) || { id: "", username: "", name: "", role: "super", enabled: 1, remark: "" };
+      modal.className = "modal show";
+      modal.innerHTML = `<div class="box">
+        <h3>${row.id ? "编辑后台账号" : "新增后台账号"}</h3>
+        <div class="row"><label>登录账号</label><input id="ad_user" value="${esc(row.username || "")}" ${row.id ? "readonly" : ""}></div>
+        <div class="row"><label>显示名称</label><input id="ad_name" value="${esc(row.name || "")}"></div>
+        <div class="row"><label>角色</label>
+          <select id="ad_role">
+            <option value="super" ${row.role!=="agent"?"selected":""}>总后台</option>
+            <option value="agent" ${row.role==="agent"?"selected":""}>代理后台</option>
+          </select>
+        </div>
+        <div class="row"><label>登录密码${row.id ? "（空=不改）" : ""}</label><input id="ad_pass" type="password" placeholder="${row.id ? "留空不改密码" : "至少4位"}"></div>
+        <div class="row"><label>状态</label>
+          <select id="ad_on">
+            <option value="1" ${Number(row.enabled)!==0?"selected":""}>启用</option>
+            <option value="0" ${Number(row.enabled)===0?"selected":""}>关闭</option>
+          </select>
+        </div>
+        <div class="row"><label>备注</label><input id="ad_remark" value="${esc(row.remark || "")}"></div>
+        <div class="actions">
+          <button class="btn primary" onclick="saveAdminAcc('${row.id || ""}')">保存</button>
+          <button class="btn" onclick="modal.className='modal'">取消</button>
+        </div>
+      </div>`;
+    }
+    async function saveAdminAcc(id) {
+      const res = await api("/admin/api/admin/save", {
+        id, username: ad_user.value, name: ad_name.value, role: ad_role.value,
+        password: ad_pass.value, enabled: ad_on.value, remark: ad_remark.value
+      });
+      if (res.code !== 1) return toast(res.info, 1);
+      modal.className = "modal";
+      toast(res.info || "已保存");
+      renderAdmins();
+    }
     function tick() {
       clock.textContent = "华盛顿时间： " + new Date().toISOString().replace("T", " ").slice(0, 19);
       setTimeout(tick, 1000);
@@ -266,6 +352,7 @@
       crumb.textContent = titles[name] || name;
       if (name === "payaddr" && isAgent()) return toast("代理不能修改前端充值地址", 1);
       if (name === "agents" && isAgent()) return toast("代理不能管理其他代理后台", 1);
+      if (name === "admins" && isAgent()) return toast("代理不能管理后台账号", 1);
       if (name === "users" || name === "workers") return renderUsers();
       if (name === "stats") return renderStats();
       if (name === "payaddr") return renderPayAddr();
@@ -277,6 +364,7 @@
       if (name === "banks") return renderUsersExtra("bank");
       if (name === "dup") return renderDup();
       if (name === "stuckedit") return renderStuckPage();
+      if (name === "admins") return renderAdmins();
       if (name === "agents") return renderAgents();
       if (name === "orders") return renderOrders();
       if (name === "carousel") return renderSiteList("carousel");

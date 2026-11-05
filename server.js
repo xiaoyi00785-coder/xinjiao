@@ -1600,6 +1600,62 @@ both("/admin/api/me", (req) => {
   if (err) return err;
   return ok(publicAdmin(admin));
 });
+both("/admin/api/password", (req) => {
+  const { admin, err } = needAdmin(req);
+  if (err) return err;
+  const b = body(req);
+  const oldPwd = String(b.old_password || b.old || "");
+  const newPwd = String(b.password || b.new_password || "").trim();
+  if (!newPwd || newPwd.length < 4) return fail("新密码至少4位");
+  if (oldPwd !== String(admin.password || "")) return fail("原密码错误");
+  if (oldPwd === newPwd) return fail("新密码不能和原密码一样");
+  admin.password = newPwd;
+  saveDb();
+  return ok({}, "密码已修改，下次登录用新密码");
+});
+both("/admin/api/admins", (req) => {
+  const { err } = needSuper(req, "代理不能管理后台账号");
+  if (err) return err;
+  return ok({ list: (db.admins || []).map(publicAdmin) });
+});
+both("/admin/api/admin/save", (req) => {
+  const { admin, err } = needSuper(req, "只有主后台能改后台账号");
+  if (err) return err;
+  const b = body(req);
+  const username = String(b.username || "").trim();
+  if (!username) return fail("请填写登录账号");
+  let row = (db.admins || []).find((a) => String(a.id) === String(b.id));
+  if (!row) {
+    if ((db.admins || []).some((a) => a.username === username)) return fail("账号已存在");
+    const role = b.role === "agent" ? "agent" : "super";
+    row = {
+      id: db.nextAdmin++,
+      username,
+      role,
+      enabled: 1,
+      yqm: "",
+      recharge_address: "",
+      remark: "",
+      name: username,
+    };
+    db.admins.push(row);
+  }
+  if (b.password) {
+    const pwd = String(b.password).trim();
+    if (pwd.length < 4) return fail("密码至少4位");
+    row.password = pwd;
+  }
+  if (!row.password) row.password = "123456";
+  if (b.name != null) row.name = String(b.name || username);
+  if (b.role === "agent" || b.role === "super") {
+    if (!(row.username === admin.username && row.role === "super" && b.role === "agent")) row.role = b.role;
+  }
+  if (b.enabled !== undefined && b.enabled !== "") row.enabled = Number(b.enabled) ? 1 : 0;
+  if (row.username === admin.username) row.enabled = 1;
+  if (b.remark != null) row.remark = String(b.remark);
+  saveDb();
+  return ok(publicAdmin(row), "后台账号已保存");
+});
 both("/admin/api/agents", (req) => {
   const { err } = needSuper(req, "代理不能管理其他代理后台");
   if (err) return err;
