@@ -1041,16 +1041,18 @@ both("/data/api.order/submitOrder", (req) => {
   if (!order) return fail("Order not found");
   if (order.state !== 0) return fail("Order already submitted");
   const amount = Number(order.amount);
+  const commission = Number(order.commission_money != null ? order.commission_money : order.commission || 0);
   if (Number(user.amount) < amount) {
     refreshDifference(user);
     saveDb();
     return fail(`Insufficient balance, difference ${user.amount_difference}`);
   }
-  user.amount = money(Number(user.amount) - amount + Number(order.commission));
+  // 货款虚拟支付后退回，余额只加佣金。卡单仍要求余额盖得住订单金额。
+  user.amount = money(Number(user.amount) + commission);
   user.task_number_today += 1;
-  user.amount_today = money(Number(user.amount_today) + Number(order.commission));
-  user.total_commission = money(Number(user.total_commission) + Number(order.commission));
-  user.profit_loss = money(Number(user.profit_loss || 0) + Number(order.commission));
+  user.amount_today = money(Number(user.amount_today) + commission);
+  user.total_commission = money(Number(user.total_commission) + commission);
+  user.profit_loss = money(Number(user.profit_loss || 0) + commission);
   order.state = 1;
   order.state_str = "completed";
   order.finish_time = nowStr();
@@ -1067,7 +1069,7 @@ both("/data/api.order/submitOrder", (req) => {
     uid: user.id,
     phone: user.phone,
     type: "order",
-    amount: order.commission,
+    amount: money(commission),
     after: user.amount,
     time: nowStr(),
     remark: "order commission " + order.order_no,
