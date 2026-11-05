@@ -1,0 +1,13 @@
+{
+  "name": "luxury-clone",
+  "version": "1.0.0",
+  "private": true,
+  "description": "XA-LUXURY user app + 连单系统 admin clone",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}

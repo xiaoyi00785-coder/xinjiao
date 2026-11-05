@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>系统管理后台 · 连单系统</title>
+  <style>
+    :root { --side: 200px; --top: 48px; --green: #16a34a; --orange: #f97316; --red: #ef4444; --blue: #2563eb; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f3f3f3; color: #333; }
+    button, input, select, textarea { font-family: inherit; }
+    #login { min-height: 100vh; background: #3b4b5c; display: flex; align-items: center; justify-content: center; }
+    .login-box { width: 360px; text-align: center; color: #fff; }
+    .login-box h2 { margin-bottom: 24px; letter-spacing: 4px; }
+    .login-box input {
+      width: 100%; height: 40px; margin-bottom: 12px; padding: 0 12px 0 36px;
+      background: transparent; border: 1px solid #9aa4b0; color: #fff; outline: none;
+    }
+    .field { position: relative; }
+    .field span { position: absolute; left: 10px; top: 10px; opacity: .8; }
+    .login-box button { width: 100%; height: 42px; border: 0; background: #4da3ff; color: #fff; cursor: pointer; }
+    .app { display: none; min-height: 100vh; }
+    .top {
+      height: var(--top); background: #fff; border-bottom: 1px solid #e5e5e5;
+      display: flex; align-items: center; padding: 0 12px; gap: 12px; position: sticky; top: 0; z-index: 20;
+      white-space: nowrap;
+    }
+    .brand { color: #16a34a; font-weight: 700; }
+    .top-link { padding: 6px 8px; cursor: pointer; }
+    .top-link.active { color: #16a34a; font-weight: 600; }
+    .pill { background: #f97316; color: #fff; padding: 3px 8px; border-radius: 2px; font-size: 12px; }
+    .clock { margin-left: auto; color: #111; font-size: 13px; }
+    .badge { display: flex; gap: 12px; font-size: 13px; }
+    .badge b { color: #ef4444; }
+    .layout { display: flex; min-height: calc(100vh - var(--top)); }
+    .side { width: var(--side); background: #fff; border-right: 1px solid #eee; padding: 8px 0; flex-shrink: 0; }
+    .group-title { padding: 10px 18px; color: #888; font-size: 12px; }
+    .menu { list-style: none; }
+    .menu li { padding: 9px 22px; cursor: pointer; font-size: 14px; }
+    .menu li:hover { background: #f6f6f6; }
+    .menu li.active { color: #16a34a; background: #f0fdf4; }
+    .main { flex: 1; padding: 10px 12px 32px; min-width: 0; }
+    .crumb { background: #fff; padding: 8px 12px; margin-bottom: 8px; border: 1px solid #eee; }
+    .panel { background: #fff; border: 1px solid #eee; padding: 12px; }
+    .search { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-bottom: 12px; align-items: center; }
+    .search .item { display: flex; align-items: center; gap: 6px; }
+    .search label { font-size: 12px; color: #666; min-width: 56px; text-align: right; }
+    .search input, .search select { height: 30px; border: 1px solid #ddd; padding: 0 8px; width: 140px; }
+    .btn { height: 28px; padding: 0 10px; border: 1px solid #ddd; background: #fff; cursor: pointer; font-size: 12px; border-radius: 2px; }
+    .btn.primary { background: #16a34a; color: #fff; border-color: #16a34a; }
+    .btn.orange { background: #f97316; color: #fff; border: 0; }
+    .btn.red { background: #ef4444; color: #fff; border: 0; }
+    .btn.blue { background: #2563eb; color: #fff; border: 0; }
+    .btn.gray { background: #64748b; color: #fff; border: 0; }
+    .btn:disabled { opacity: .55; cursor: not-allowed; }
+    .table-wrap { overflow: auto; max-height: calc(100vh - 220px); }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 1680px; }
+    table.compact { min-width: 980px; }
+    th, td { border: 1px solid #eee; padding: 8px; vertical-align: top; text-align: left; }
+    th { background: #fafafa; white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+    .info { line-height: 1.8; }
+    .ops { display: flex; flex-direction: column; gap: 6px; width: 92px; }
+    .ops .btn { width: 100%; }
+    .addr { word-break: break-all; font-family: Consolas, "Courier New", monospace; }
+    .tag { display: inline-block; padding: 1px 6px; border-radius: 2px; color: #fff; font-size: 11px; margin: 0 2px 2px 0; }
+    .tag.green { background: #16a34a; }
+    .tag.blue { background: #0ea5e9; }
+    .tag.orange { background: #f97316; }
+    .tag.red { background: #ef4444; }
+    .tag.gray { background: #94a3b8; }
+    .muted { color: #888; }
+    .pager { margin-top: 10px; font-size: 12px; color: #666; display: flex; gap: 8px; align-items: center; }
+    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); align-items: center; justify-content: center; z-index: 50; }
+    .modal.show { display: flex; }
+    .modal .box { background: #fff; width: 460px; max-width: calc(100vw - 24px); padding: 18px; max-height: 90vh; overflow: auto; }
+    .modal h3 { margin-bottom: 12px; }
+    .modal .row { margin: 8px 0; }
+    .modal .row label { display: block; font-size: 12px; color: #666; margin-bottom: 4px; }
+    .modal input, .modal select, .modal textarea { width: 100%; padding: 8px; border: 1px solid #ddd; }
+    .modal .actions { margin-top: 14px; display: flex; gap: 8px; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .stat { background: #fff; padding: 18px; border: 1px solid #eee; }
+    .stat b { font-size: 22px; display: block; margin-top: 8px; }
+    #toast {
+      display: none; position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+      background: #111; color: #fff; padding: 8px 16px; border-radius: 4px; z-index: 80; font-size: 13px;
+    }
+    #toast.show { display: block; }
+    #toast.err { background: #b91c1c; }
+    .stuck-page { background: #fff; min-height: 560px; padding: 18px 22px 40px; }
+    .stuck-crumb { color: #999; font-size: 13px; margin-bottom: 18px; }
+    .stuck-head { display: grid; grid-template-columns: 220px 1fr 220px; gap: 16px; margin-bottom: 22px; }
+    .stuck-head .k { color: #16a34a; font-size: 13px; margin-bottom: 6px; }
+    .stuck-head .v { color: #333; font-size: 14px; }
+    .stuck-tools { display: flex; justify-content: flex-end; gap: 8px; margin: 8px 0 16px; }
+    .btn.gold { background: #e6a23c; color: #fff; border: 0; height: 32px; padding: 0 14px; }
+    .plan-box { border-top: 1px solid #f0f0f0; padding-top: 8px; }
+    .plan-title { font-size: 14px; margin-bottom: 10px; }
+    .modal .box.wide { width: 640px; padding: 22px 28px 18px; position: relative; }
+    .modal .box.wide h3 { font-size: 16px; font-weight: 600; }
+    .modal .x { position: absolute; right: 16px; top: 14px; border: 0; background: none; font-size: 20px; cursor: pointer; color: #999; }
+    .el-label { color: #16a34a; font-size: 13px; margin-bottom: 8px; }
+    .el-label em { color: #999; font-style: normal; margin-left: 6px; }
+    .hint { color: #f56c6c; font-size: 12px; margin-top: 6px; }
+    .hint.req { margin-top: 4px; }
+    .modal .actions.center { justify-content: center; gap: 16px; margin-top: 22px; }
+    .btn.teal { background: #13c2c2; color: #fff; border: 0; height: 36px; min-width: 96px; }
+    .btn.warn { background: #ff7a45; color: #fff; border: 0; height: 36px; min-width: 96px; }
+  </style>
+</head>
+<body>
+  <div id="login">
+    <div class="login-box">
+      <h2>系统管理</h2>
+      <div class="field"><span>👤</span><input id="u" placeholder="登录账号" value="ouzai888" /></div>
+      <div class="field"><span>🔒</span><input id="p" type="password" placeholder="登录密码" value="a321321" /></div>
+      <button onclick="login()">立即登录</button>
+    </div>
+  </div>
+
+  <div class="app" id="app">
+    <div class="top">
+      <div class="brand">连单系统 v1.0</div>
+      <div class="top-link active" id="navUsers" onclick="show('users')">管理中心</div>
+      <div class="top-link" id="navStats" onclick="show('stats')">数据统计</div>
+      <span class="pill">改图工具</span>
+      <div class="clock" id="clock"></div>
+      <div class="badge">充值 <b id="rCount">0</b> 提现 <b id="wCount">0</b></div>
+      <div>zh-cn</div>
+      <div id="adminName">ouzai888</div>
+      <button class="btn" onclick="logout()">退出登录</button>
+    </div>
+    <div class="layout">
+      <aside class="side">
+        <div class="group-title">用户管理</div>
+        <ul class="menu">
+          <li class="active" onclick="show('users', this)">用户管理</li>
+          <li onclick="show('workers', this)">做单账户管理</li>
+          <li onclick="show('wallets', this)">提现地址</li>
+          <li onclick="show('banks', this)">银行卡提现管理</li>
+          <li onclick="show('dup', this)">用户查重</li>
+        </ul>
+        <div class="group-title">财务系统</div>
+        <ul class="menu">
+          <li onclick="show('payaddr', this)">前端充值地址</li>
+          <li onclick="show('recharge', this)">充值订单</li>
+          <li onclick="show('withdraw', this)">提款订单</li>
+          <li onclick="show('changes', this)">钱包明细</li>
+        </ul>
+        <div class="group-title">代理中心</div>
+        <ul class="menu">
+          <li onclick="show('review', this)">用户提现审核</li>
+        </ul>
+      </aside>
+      <main class="main">
+        <div class="crumb" id="crumb">用户列表</div>
+        <div class="panel" id="content"></div>
+      </main>
+    </div>
+  </div>
+
+  <div class="modal" id="modal"></div>
+  <div id="toast"></div>
+
+  <script>
+    const token = { v: localStorage.getItem("admin_token") || "" };
+    const titles = {
+      users: "用户列表", workers: "做单账户管理", wallets: "提现地址",
+      banks: "银行卡提现管理", dup: "用户查重", payaddr: "前端充值地址",
+      recharge: "充值订单", withdraw: "提款订单", changes: "钱包明细",
+      review: "用户提现审核", stats: "数据统计", stuckedit: "编辑卡单"
+    };
+    const state = { page: "users", pageNo: 1, limit: 10, accountType: "", filters: {} };
+    const cache = { users: [] };
+
+    function toast(msg, err) {
+      const el = document.getElementById("toast");
+      el.textContent = msg;
+      el.className = err ? "show err" : "show";
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => { el.className = ""; }, 2200);
+    }
+    function esc(v) {
+      return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+
+    async function api(url, data = {}) {
+      const r = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "admin-token": token.v },
+        body: JSON.stringify(data)
+      });
+      return r.json();
+    }
+
+    async function login() {
+      const res = await api("/admin/api/login", { username: u.value, password: p.value });
+      if (res.code !== 1) return toast(res.info, 1);
+      token.v = res.data.token;
+      localStorage.setItem("admin_token", token.v);
+      document.getElementById("login").style.display = "none";
+      document.getElementById("app").style.display = "block";
+      adminName.textContent = res.data.username;
+      show("users");
+      tick();
+    }
+    function logout() {
+      localStorage.removeItem("admin_token");
+      location.reload();
+    }
+    function tick() {
+      clock.textContent = "华盛顿时间： " + new Date().toISOString().replace("T", " ").slice(0, 19);
+      setTimeout(tick, 1000);
+    }
+    function setActive(el) {
+      document.querySelectorAll(".menu li").forEach((x) => x.classList.remove("active"));
+      if (el) el.classList.add("active");
+    }
+    async function show(name, el) {
+      state.page = name;
+      if (name === "users" || name === "workers") state.accountType = name === "workers" ? "1" : "";
+      if (el) setActive(el);
+      document.querySelectorAll(".top-link").forEach((x) => x.classList.remove("active"));
+      (name === "stats" ? navStats : navUsers).classList.add("active");
+      crumb.textContent = titles[name] || name;
+      if (name === "users" || name === "workers") return renderUsers();
+      if (name === "stats") return renderStats();
+      if (name === "payaddr") return renderPayAddr();
+      if (name === "recharge") return renderSimple("recharges", ["id","phone","amount","type","status_str","time"]);
+      if (name === "withdraw" || name === "review") return renderWithdraw();
+      if (name === "changes") return renderSimple("changes", ["id","phone","type","amount","after","remark","time"]);
+      if (name === "wallets") return renderUsersExtra("address");
+      if (name === "banks") return renderUsersExtra("bank");
+      if (name === "dup") return renderDup();
+      if (name === "stuckedit") return renderStuckPage();
+    }
+
+    function collectFilters() {
+      const val = (id) => (document.getElementById(id) ? document.getElementById(id).value : "");
+      state.filters = {
+        id: val("f_id"), phone: val("f_phone"), name: val("f_name"),
+        register_ip: val("f_rip"), last_ip: val("f_lip"), yqm: val("f_yqm"),
+        address: val("f_addr"), accountType: val("f_type") || state.accountType,
+        vip_level: val("f_vip"), source_web: val("f_web"), status: val("f_status")
+      };
+      state.pageNo = 1;
+      renderUsers();
+    }
+
+    async function renderUsers() {
+      const q = { page: state.pageNo, limit: state.limit, ...state.filters };
+      if (state.accountType !== "" && !q.accountType) q.accountType = state.accountType;
+      const res = await api("/admin/api/users", q);
+      if (res.code !== 1) return toast(res.info || "加载失败", 1);
+      const rows = res.data.list || [];
+      cache.users = rows;
+      const pg = res.data.page || { current: 1, total: rows.length, pages: 1 };
+      const f = state.filters;
+      content.innerHTML = `
+        ${state.page === "workers" ? `<div class="search"><button class="btn primary" onclick="openCreateWorker()">添加做单账户</button>
+          <span class="muted">做单账户可以登录用户端做任务。</span></div>` : ""}
+        <div class="search">
+          <div class="item"><label>用户ID</label><input id="f_id" value="${esc(f.id || "")}" placeholder="请输入用户ID"></div>
+          <div class="item"><label>用户手机</label><input id="f_phone" value="${esc(f.phone || "")}" placeholder="请输入用户手机"></div>
+          <div class="item"><label>用户名</label><input id="f_name" value="${esc(f.name || "")}" placeholder="请输入用户名"></div>
+          <div class="item"><label>注册IP</label><input id="f_rip" value="${esc(f.register_ip || "")}" placeholder="请输入注册IP"></div>
+          <div class="item"><label>登录IP</label><input id="f_lip" value="${esc(f.last_ip || "")}" placeholder="请输入登录IP"></div>
+          <div class="item"><label>邀请码</label><input id="f_yqm" value="${esc(f.yqm || "")}" placeholder="请输入邀请码"></div>
+          <div class="item"><label>充值地址</label><input id="f_addr" value="${esc(f.address || "")}" placeholder="请输入充值地址"></div>
+          <div class="item"><label>账号类型</label>
+            <select id="f_type">
+              <option value="">-- 全部 --</option>
+              <option value="0" ${String(f.accountType)==="0"?"selected":""}>真实账号</option>
+              <option value="1" ${String(f.accountType)==="1"?"selected":""}>做单账户</option>
+              <option value="2" ${String(f.accountType)==="2"?"selected":""}>业务员账号</option>
+            </select>
+          </div>
+          <div class="item"><label>用户等级</label>
+            <select id="f_vip">
+              <option value="">全部</option>
+              <option value="1" ${f.vip_level==="1"?"selected":""}>VIP1</option>
+              <option value="2" ${f.vip_level==="2"?"selected":""}>VIP2</option>
+              <option value="3" ${f.vip_level==="3"?"selected":""}>VIP3</option>
+            </select>
+          </div>
+          <div class="item"><label>所属平台</label>
+            <select id="f_web">
+              <option value="">全部</option>
+              <option value="Luxury" ${f.source_web==="Luxury"?"selected":""}>Luxury</option>
+            </select>
+          </div>
+          <div class="item"><label>账号状态</label>
+            <select id="f_status">
+              <option value="">全部</option>
+              <option value="1" ${f.status==="1"?"selected":""}>正常</option>
+              <option value="0" ${f.status==="0"?"selected":""}>冻结</option>
+            </select>
+          </div>
+          <button class="btn primary" onclick="collectFilters()">搜索</button>
+          <button class="btn" onclick="state.filters={};state.pageNo=1;renderUsers()">重置</button>
+        </div>
+        <div class="table-wrap"><table>
+          <tr>
+            <th>用户ID</th><th>用户信息</th><th>信用分</th><th>任务信息</th><th>余额</th>
+            <th>上级代理</th><th>盈利</th><th>盈亏</th><th>借钱</th><th>充值/提现($)</th>
+            <th>充值地址</th><th>最近登录</th><th>注册时间</th>
+          </tr>
+          ${rows.map(userRow).join("") || `<tr><td colspan="13">暂无数据</td></tr>`}
+        </table></div>
+        <div class="pager">
+          共 ${pg.total} 条，第 ${pg.current}/${pg.pages} 页
+          <button class="btn" ${pg.current<=1?"disabled":""} onclick="state.pageNo--;renderUsers()">上一页</button>
+          <button class="btn" ${pg.current>=pg.pages?"disabled":""} onclick="state.pageNo++;renderUsers()">下一页</button>
+        </div>
+      `;
+      refreshBadges();
+    }
+
+    function userRow(u) {
+      const typeName = u.accountType === 1 ? "做单账户" : u.accountType === 2 ? "业务员账号" : "真实账号";
+      return `<tr>
+        <td>${u.id}</td>
+        <td class="info">
+          <span class="tag green">${typeName}</span><span class="tag blue">${esc(u.source_web || "Luxury")}</span>
+          ${u.frozen ? '<span class="tag red">冻结</span>' : ""}<br>
+          用户手机：${esc(u.phone)}<br>用户名：${esc(u.name)}<br>邀请码:${esc(u.yqm)}<br>
+          会员等级:${esc(u.vip_name)}<br>做单佣金:${esc(u.commission_rate)}%<br>
+          <button class="btn" onclick="openBank(${u.id})">银行卡信息</button>
+        </td>
+        <td>${u.credit}</td>
+        <td class="info">
+          当前订单号:<br>${esc(u.current_order)}${u.current_order_happy ? ' <span class="tag orange">连单</span>' : ""}<br>
+          ${u.current_order_amount ? "金额:" + u.current_order_amount + "<br>" : ""}
+          进度:${esc(u.progress)}<br>
+          ${Number(u.stuck) ? `卡单第${u.stuck_at || "-"}单 / ${esc(u.stuck_amount || "-")}<br>` : ""}
+          <div class="ops">
+            <button class="btn ${Number(u.grab_enabled) ? "gray" : "orange"}" onclick="act(${u.id},'grab')">
+              ${Number(u.grab_enabled) ? "关闭抢单" : "开启抢单"}
+            </button>
+            <button class="btn red" onclick="openStuckPage(${u.id})">设置卡单</button>
+            <button class="btn orange" onclick="resetTask(${u.id})">重置任务</button>
+          </div>
+        </td>
+        <td class="info">可用余额:${u.amount}<br>冻结余额:${u.amount_frozen}<br>差额:${u.amount_difference || "0.0000"}</td>
+        <td class="info">${esc(u.parent || "-")}<br>代理ID：${u.agent_id || "-"}</td>
+        <td class="info">总盈利${u.total_commission}<br>今日盈利${u.amount_today}</td>
+        <td>${u.profit_loss || "0.0000"}</td>
+        <td>${u.loan || "-"}</td>
+        <td class="info">总提款:${u.total_withdraw}<br>总充值:${u.total_recharge}<br>
+          <button class="btn" onclick="openChange(${u.id})">账变</button></td>
+        <td class="addr">${esc(u.address || "-")}</td>
+        <td class="info">登录次数:${u.login_count || 0}<br>IP:${esc(u.last_ip || "-")}</td>
+        <td class="info">${esc(u.add_time_str)}<br>
+          <div class="ops">
+            <button class="btn" onclick="openEdit(${u.id})">编辑</button>
+            <button class="btn red" onclick="act(${u.id},'freeze')">${u.frozen ? "解冻" : "冻结"}</button>
+          </div>
+        </td>
+      </tr>`;
+    }
+
+    function findUser(id) {
+      return cache.users.find((x) => String(x.id) === String(id)) || { id };
+    }
+
+    async function act(id, action, extra = {}) {
+      const res = await api("/admin/api/user/action", { id, action, ...extra });
+      if (res.code !== 1) return toast(res.info || "操作失败", 1);
+      toast(res.info || "已处理");
+      renderUsers();
+    }
+    function resetTask(id) {
+      if (!confirm("确认重置该用户今日任务？待处理订单会取消，进度归零。")) return;
+      act(id, "reset");
+    }
+    function openCreateWorker() {
+      modal.className = "modal show";
+      modal.innerHTML = `<div class="box">
+        <h3>添加做单账户</h3>
+        <div class="row"><label>账号/手机</label><input id="w_phone" placeholder="登录账号"></div>
+        <div class="row"><label>用户名</label><input id="w_name" placeholder="可空，默认等于账号"></div>
+        <div class="row"><label>登录密码</label><input id="w_pass" value="123456"></div>
+        <div class="row"><label>资金密码</label><input id="w_trade" value="123456"></div>
+        <div class="row"><label>初始余额</label><input id="w_amt" value="0"></div>
+        <div class="row"><label>会员等级</label>
+          <select id="w_vip"><option value="1">VIP1</option><option value="2">VIP2</option><option value="3">VIP3</option></select>
+        </div>
+        <div class="row"><label>邀请码（可空）</label><input id="w_yqm" placeholder="自动生成"></div>
+        <div class="actions">
+          <button class="btn primary" onclick="saveWorker()">保存</button>
+          <button class="btn" onclick="modal.className='modal'">取消</button>
+        </div>
+      </div>`;
+    }
+    async function saveWorker() {
+      const res = await api("/admin/api/user/create", {
+        phone: w_phone.value, name: w_name.value, password: w_pass.value, trade_password: w_trade.value,
+        amount: w_amt.value, vip_level: w_vip.value, yqm: w_yqm.value, accountType: 1
+      });
+      if (res.code !== 1) return toast(res.info, 1);
+      modal.className = "modal";
+      toast(res.info || "已添加");
+      renderUsers();
+    }
+    function openStuckPage(id) {
+      state.stuckUid = id;
+      show("stuckedit");
+    }
+    async function renderStuckPage() {
+      const uid = state.stuckUid;
+      if (!uid) return show("users");
+      const res = await api("/admin/api/stuck/list", { uid });
+      if (res.code !== 1) return toast(res.info, 1);
+      const u = res.data.user || {};
+      const list = res.data.list || [];
+      cache.stuckUser = u;
+      content.innerHTML = `
+        <div class="stuck-page">
+          <div class="stuck-crumb">＞ 编辑卡单</div>
+          <div class="stuck-head">
+            <div><div class="k">用户名</div><div class="v">${esc(u.name || "-")}</div></div>
+            <div><div class="k">钱包金额 amount</div><div class="v">${esc(u.amount || "0.0000")}</div></div>
+            <div></div>
+            <div><div class="k">手机号码</div><div class="v">${esc(u.phone || "-")}</div></div>
+          </div>
+          <div class="stuck-tools">
+            <button class="btn gold" onclick="openStuckForm('multi')">多卡单设置</button>
+            <button class="btn gold" onclick="openStuckForm('normal')">常规卡单</button>
+            <button class="btn gold" onclick="openStuckForm('special')">特殊卡单</button>
+            <button class="btn gold" onclick="openStuckForm('split')">拆分订单</button>
+          </div>
+          <div class="plan-box">
+            <div class="plan-title">计划订单记录</div>
+            <div class="table-wrap"><table class="compact">
+              <tr><th>时间</th><th>类型</th><th>任务编号</th><th>卡单金额</th><th>返佣方式</th><th>佣金</th><th>次数/数量</th><th>状态</th><th>操作</th></tr>
+              ${list.map((p) => `<tr>
+                <td>${esc(p.time)}</td>
+                <td>${esc(p.type_name)}</td>
+                <td>${esc(p.current_number)}</td>
+                <td>${esc(p.over_money)}</td>
+                <td>${p.commission_type === "fixed" ? "固定金额" : "佣金比例"}</td>
+                <td>${esc(p.commission_rate)}${p.commission_type === "fixed" ? "" : "%"}</td>
+                <td>${p.number || "-"}</td>
+                <td>${Number(p.status)===0?'<span class="tag orange">待执行</span>':Number(p.status)===1?'<span class="tag green">已完成</span>':'<span class="tag gray">已取消</span>'}</td>
+                <td>${Number(p.status)===0?`<button class="btn red" onclick="cancelPlan(${p.id})">取消</button>`:"-"}</td>
+              </tr>`).join("") || `<tr><td colspan="9">暂无计划订单</td></tr>`}
+            </table></div>
+          </div>
+        </div>`;
+    }
+    function commTypeSelect(id) {
+      return `<select id="${id}">
+        <option value="rate">佣金比例</option>
+        <option value="fixed">固定金额</option>
+      </select>`;
+    }
+    function openStuckForm(type) {
+      const titles = { multi: "多卡单设置", normal: "常规卡单", special: "特殊卡单", split: "拆分订单" };
+      const numberLabel = type === "split" ? "商品数量 number" : "次数 number";
+      const numberHint = type === "split" ? "如5" : "如5";
+      const numField = type === "normal" || type === "split" || type === "special" ? `
+        <div class="row">
+          <div class="el-label">${numberLabel}</div>
+          <input id="st_num" placeholder="${type === "split" ? "商品数量" : "请输入次数"}">
+          <div class="hint">如${numberHint}${type === "normal" ? "" : ""}</div>
+        </div>` : "";
+      const noHint = type === "multi" ? "如1/3/5" : "必填，如1";
+      const moneyHint = type === "multi" ? "如100/200/300" : type === "split" ? "必填，如100" : "必填，如100";
+      const moneyLabel = type === "split" ? "每次金额 over_money" : "卡单金额 over_money";
+      const noLabel = type === "split" ? "订单进度编号 current_number" : "任务编号 current_number";
+      const extra = type === "special" ? `<div class="row"><div class="el-label">商品名称</div><input id="st_goods" placeholder="可空"></div>` : "";
+      modal.className = "modal show";
+      modal.innerHTML = `<div class="box wide">
+        <button class="x" onclick="modal.className='modal'">×</button>
+        <h3>${titles[type]}</h3>
+        <div class="row">
+          <div class="el-label">${noLabel}</div>
+          <input id="st_no" placeholder="请输入任务编号">
+          <div class="hint">${noHint}</div>
+        </div>
+        <div class="row">
+          <div class="el-label">${moneyLabel}</div>
+          <input id="st_amt" placeholder="${type === "split" ? "每次金额" : "请输入卡单金额"}">
+          <div class="hint">${moneyHint}</div>
+        </div>
+        <div class="row">
+          <div class="el-label">返佣金额方式 commission_type <span class="hint" style="margin-left:6px">点击下拉，比例和固定金额可选</span></div>
+          ${commTypeSelect("st_ctype")}
+        </div>
+        <div class="row">
+          <div class="el-label">佣金比例 commission_rate</div>
+          <input id="st_rate" placeholder="请输入佣金比例">
+          <div class="hint">${type === "multi" ? "如2/3/5" : "如10表示10%"}</div>
+        </div>
+        ${numField}
+        ${extra}
+        <div class="actions center">
+          <button class="btn teal" onclick="saveStuckForm('${type}')">保存数据</button>
+          <button class="btn warn" onclick="modal.className='modal'">取消编辑</button>
+        </div>
+      </div>`;
+    }
+    async function saveStuckForm(type) {
+      const res = await api("/admin/api/stuck/save", {
+        uid: state.stuckUid, type,
+        current_number: st_no.value, over_money: st_amt.value,
+        commission_type: st_ctype.value, commission_rate: st_rate.value,
+        number: document.getElementById("st_num") ? st_num.value : "",
+        goods: document.getElementById("st_goods") ? st_goods.value : ""
+      });
+      if (res.code !== 1) return toast(res.info, 1);
+      modal.className = "modal";
+      toast(res.info || "已保存");
+      renderStuckPage();
+    }
+    async function cancelPlan(id) {
+      if (!confirm("取消这条计划订单？")) return;
+      const res = await api("/admin/api/stuck/action", { id, action: "cancel" });
+      if (res.code !== 1) return toast(res.info, 1);
+      toast(res.info || "已取消");
+      renderStuckPage();
+    }
+    function openChange(id) {
+      const u = findUser(id);
+      modal.className = "modal show";
+      modal.innerHTML = `<div class="box"><h3>账变 · ${esc(u.phone || id)}</h3>
+        <p class="muted">当前余额 ${u.amount || "0.0000"}</p>
+        <div class="row"><label>金额，正加负减</label><input id="c_amt" placeholder="例如 100 或 -50"></div>
+        <div class="row"><label>备注</label><input id="c_remark" placeholder="后台调账"></div>
+        <div class="actions">
+          <button class="btn primary" onclick="doChange(${id})">确定</button>
+          <button class="btn" onclick="modal.className='modal'">取消</button>
+        </div></div>`;
+    }
+    async function doChange(id) {
+      await act(id, "change", { amount: c_amt.value, remark: c_remark.value });
+      modal.className = "modal";
+    }
+    function openBank(id) {
+      const u = findUser(id);
+      modal.className = "modal show";
+      modal.innerHTML = `<div class="box"><h3>银行卡 · ${esc(u.phone || id)}</h3>
+        <div class="row"><label>开户名</label><input id="b_real" value="${esc(u.bank_real || "")}"></div>
+        <div class="row"><label>银行</label><input id="b_name" value="${esc(u.bank_name || "")}"></div>
+        <div class="row"><label>卡号</label><input id="b_acc" value="${esc(u.bank_account || "")}"></div>
+        <div class="row"><label>提现地址 TRC20</label><input id="b_addr" value="${esc(u.address || "")}"></div>
+        <div class="actions">
+          <button class="btn primary" onclick="saveBank(${id})">保存</button>
+          <button class="btn" onclick="modal.className='modal'">取消</button>
+        </div></div>`;
+    }
+    async function saveBank(id) {
+      await act(id, "edit", { bank_real: b_real.value, bank_name: b_name.value, bank_account: b_acc.value, address: b_addr.value });
+      modal.className = "modal";
+    }
+    function openEdit(id) {
+      const u = findUser(id);
+      modal.className = "modal show";
+      modal.innerHTML = `<div class="box"><h3>编辑用户 ${id}</h3>
+        <div class="row"><label>用户名</label><input id="e_name" value="${esc(u.name || "")}"></div>
+        <div class="row"><label>手机/账号</label><input id="e_phone" value="${esc(u.phone || "")}"></div>
+        <div class="row"><label>余额</label><input id="e_amount" value="${esc(u.amount || "")}"></div>
+        <div class="row"><label>冻结余额</label><input id="e_frozen" value="${esc(u.amount_frozen || "")}"></div>
+        <div class="row"><label>信用分</label><input id="e_credit" value="${esc(u.credit ?? "")}"></div>
+        <div class="row"><label>会员等级</label>
+          <select id="e_vip">
+            <option value="1" ${Number(u.vip_level)===1?"selected":""}>VIP1</option>
+            <option value="2" ${Number(u.vip_level)===2?"selected":""}>VIP2</option>
+            <option value="3" ${Number(u.vip_level)===3?"selected":""}>VIP3</option>
+          </select>
+        </div>
+        <div class="row"><label>佣金%</label><input id="e_rate" value="${esc(u.commission_rate || "")}"></div>
+        <div class="row"><label>每日任务数</label><input id="e_tasks" value="${esc(u.task_number_vip || "")}"></div>
+        <div class="row"><label>账号类型</label>
+          <select id="e_type">
+            <option value="0" ${Number(u.accountType)===0?"selected":""}>真实账号</option>
+            <option value="1" ${Number(u.accountType)===1?"selected":""}>做单账户</option>
+            <option value="2" ${Number(u.accountType)===2?"selected":""}>业务员账号</option>
+          </select>
+        </div>
+        <div class="row"><label>登录密码（空=不改）</label><input id="e_pass" placeholder="留空不改"></div>
+        <div class="row"><label>资金密码（空=不改）</label><input id="e_trade" placeholder="留空不改"></div>
+        <div class="actions">
+          <button class="btn primary" onclick="doEdit(${id})">保存</button>
+          <button class="btn" onclick="modal.className='modal'">取消</button>
+        </div></div>`;
+    }
+    async function doEdit(id) {
+      await act(id, "edit", {
+        name: e_name.value, phone: e_phone.value, amount: e_amount.value, amount_frozen: e_frozen.value,
+        credit: e_credit.value, vip_level: e_vip.value, commission_rate: e_rate.value,
+        task_number_vip: e_tasks.value, accountType: e_type.value, password: e_pass.value, trade_password: e_trade.value
+      });
+      modal.className = "modal";
+    }
+
+    async function renderPayAddr() {
+      const res = await api("/admin/api/recharge-addresses");
+      const list = res.data.list || [];
+      content.innerHTML = `
+        <div class="search">
+          <button class="btn primary" onclick="openPayAddr()">新增充值地址</button>
+          <span class="muted">改的是用户端充值页收款地址，保存后立刻生效。</span>
+        </div>
+        <div class="table-wrap"><table class="compact">
+          <tr><th>ID</th><th>名称</th><th>网络</th><th>收款地址</th><th>默认</th><th>状态</th><th>排序</th><th>备注</th><th>操作</th></tr>
+          ${list.map((r) => `<tr>
+            <td>${r.id}</td><td>${esc(r.name || r.type)}</td>
+            <td><span class="tag blue">${esc(r.type)}</span></td>
+            <td class="addr">${esc(r.address)}</td>
+            <td>${Number(r.is_default) ? '<span class="tag green">默认</span>' : "-"}</td>
+            <td>${Number(r.enabled) ? '<span class="tag green">启用</span>' : '<span class="tag orange">停用</span>'}</td>
+            <td>${r.sort ?? 0}</td><td>${esc(r.remark || "-")}</td>
+            <td>
+              <button class="btn" onclick="openPayAddr(${r.id})">编辑</button>
+              <button class="btn orange" onclick="payAddrAct(${r.id},'default')">设默认</button>
+              <button class="btn ${Number(r.enabled) ? "orange" : "primary"}" onclick="payAddrAct(${r.id},'toggle')">${Number(r.enabled) ? "停用" : "启用"}</button>
+              <button class="btn red" onclick="payAddrAct(${r.id},'delete')">删除</button>
+            </td>
+          </tr>`).join("") || `<tr><td colspan="9">暂无地址</td></tr>`}
+        </table></div>`;
+    }
+    function openPayAddr(id) {
+      const empty = { id: "", name: "", type: "TRC20", address: "", is_default: 0, enabled: 1, sort: 10, image: "", remark: "" };
+      const fill = async () => {
+        let row = empty;
+        if (id) {
+          const res = await api("/admin/api/recharge-addresses");
+          row = (res.data.list || []).find((x) => String(x.id) === String(id)) || empty;
+        }
+        modal.className = "modal show";
+        modal.innerHTML = `<div class="box">
+          <h3>${id ? "编辑充值地址" : "新增充值地址"}</h3>
+          <input type="hidden" id="pa_id" value="${row.id || ""}">
+          <div class="row"><label>显示名称</label><input id="pa_name" value="${esc(row.name || "")}"></div>
+          <div class="row"><label>网络</label>
+            <select id="pa_type">${["TRC20","ERC20","BTC","BEP20","SOL"].map((t) => `<option ${row.type===t?"selected":""}>${t}</option>`).join("")}</select>
+          </div>
+          <div class="row"><label>收款地址</label><textarea id="pa_address" rows="3">${esc(row.address || "")}</textarea></div>
+          <div class="row"><label>排序</label><input id="pa_sort" value="${row.sort ?? 10}"></div>
+          <div class="row"><label>图标</label><input id="pa_image" value="${esc(row.image || "")}"></div>
+          <div class="row"><label>备注</label><input id="pa_remark" value="${esc(row.remark || "")}"></div>
+          <label><input type="checkbox" id="pa_default" ${Number(row.is_default)?"checked":""}> 默认网络</label><br>
+          <label><input type="checkbox" id="pa_enabled" ${Number(row.enabled)!==0?"checked":""}> 启用</label>
+          <div class="actions">
+            <button class="btn primary" onclick="savePayAddr()">保存</button>
+            <button class="btn" onclick="modal.className='modal'">取消</button>
+          </div>
+        </div>`;
+      };
+      fill();
+    }
+    async function savePayAddr() {
+      const res = await api("/admin/api/recharge-address/save", {
+        id: pa_id.value, name: pa_name.value, type: pa_type.value, address: pa_address.value,
+        sort: pa_sort.value, image: pa_image.value, remark: pa_remark.value,
+        is_default: pa_default.checked ? 1 : 0, enabled: pa_enabled.checked ? 1 : 0
+      });
+      if (res.code !== 1) return toast(res.info, 1);
+      modal.className = "modal";
+      toast(res.info || "已保存");
+      renderPayAddr();
+    }
+    async function payAddrAct(id, action) {
+      if (action === "delete" && !confirm("确认删除这条前端充值地址？")) return;
+      const res = await api("/admin/api/recharge-address/action", { id, action });
+      if (res.code !== 1) return toast(res.info, 1);
+      renderPayAddr();
+    }
+    async function renderSimple(path, cols) {
+      const res = await api("/admin/api/" + path, { page: 1 });
+      const list = res.data.list || [];
+      content.innerHTML = `<div class="table-wrap"><table class="compact">
+        <tr>${cols.map((c) => `<th>${c}</th>`).join("")}</tr>
+        ${list.map((r) => `<tr>${cols.map((c) => `<td>${esc(r[c] ?? "")}</td>`).join("")}</tr>`).join("") || `<tr><td colspan="${cols.length}">暂无数据</td></tr>`}
+      </table></div>`;
+    }
+    async function renderWithdraw() {
+      const res = await api("/admin/api/withdraws", { page: 1 });
+      const list = res.data.list || [];
+      content.innerHTML = `<div class="table-wrap"><table class="compact">
+        <tr><th>ID</th><th>用户</th><th>金额</th><th>地址/卡</th><th>状态</th><th>时间</th><th>操作</th></tr>
+        ${list.map((r) => `<tr>
+          <td>${r.id}</td><td>${esc(r.phone)}</td><td>${r.amount}</td>
+          <td class="addr">${esc(r.address || r.bank_account || "")}</td><td>${esc(r.status_str)}</td><td>${esc(r.time)}</td>
+          <td>${r.status === 0 ? `<button class="btn primary" onclick="review(${r.id},1)">通过</button>
+            <button class="btn red" onclick="review(${r.id},2)">拒绝</button>` : "-"}</td>
+        </tr>`).join("") || "<tr><td colspan='7'>暂无数据</td></tr>"}
+      </table></div>`;
+    }
+    async function review(id, status) {
+      const res = await api("/admin/api/withdraw/review", { id, status });
+      if (res.code !== 1) return toast(res.info, 1);
+      toast("已处理");
+      renderWithdraw();
+    }
+    async function renderUsersExtra(kind) {
+      const res = await api("/admin/api/users", { limit: 50 });
+      const list = res.data.list || [];
+      content.innerHTML = `<div class="table-wrap"><table class="compact">
+        <tr><th>用户</th><th>手机</th><th>${kind === "bank" ? "银行卡" : "提现地址"}</th></tr>
+        ${list.map((u) => `<tr><td>${esc(u.name)}</td><td>${esc(u.phone)}</td><td class="addr">${
+          kind === "bank" ? esc((u.bank_name || "") + " " + (u.bank_account || "-")) : esc(u.address || u.wallet_address || "-")
+        }</td></tr>`).join("")}
+      </table></div>`;
+    }
+    async function renderDup() {
+      const res = await api("/admin/api/users", { limit: 50 });
+      const list = res.data.list || [];
+      const map = {};
+      list.forEach((u) => { (map[u.last_ip || "-"] = map[u.last_ip || "-"] || []).push(u.phone); });
+      content.innerHTML = `<div class="table-wrap"><table class="compact">
+        <tr><th>IP</th><th>账号</th></tr>
+        ${Object.entries(map).map(([ip, phones]) => `<tr><td>${esc(ip)}</td><td>${esc(phones.join(", "))}</td></tr>`).join("")}
+      </table></div>`;
+    }
+    async function renderStats() {
+      const res = await api("/admin/api/stats");
+      const d = res.data || {};
+      content.innerHTML = `<div class="stats">
+        <div class="stat">用户数<b>${d.users || 0}</b></div>
+        <div class="stat">总充值<b>${Number(d.recharge || 0).toFixed(4)}</b></div>
+        <div class="stat">总提现<b>${Number(d.withdraw || 0).toFixed(4)}</b></div>
+        <div class="stat">待审提现<b>${d.pendingWithdraw || 0}</b></div>
+      </div>`;
+    }
+    async function refreshBadges() {
+      const s = await api("/admin/api/stats");
+      rCount.textContent = Number(s.data.recharge || 0).toFixed(0);
+      wCount.textContent = s.data.pendingWithdraw || 0;
+    }
+    if (token.v) {
+      document.getElementById("login").style.display = "none";
+      document.getElementById("app").style.display = "block";
+      tick();
+      show("users");
+    }
+  </script>
+</body>
+</html>
