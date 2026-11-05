@@ -569,16 +569,19 @@ function commissionOf(plan, amount) {
   return Number(((amount * n) / 100).toFixed(4));
 }
 
-function syncStuckFlag(user) {
-  const open = (db.stuckPlans || []).some((p) => p.uid === user.id && Number(p.status) === 0);
-  user.stuck = open ? 1 : 0;
-  if (!open) {
-    user.stuck_at = 0;
-    user.stuck_amount = "";
-  }
+function hasOpenStuckPlan(user) {
+  return (db.stuckPlans || []).some((p) => p.uid === user.id && Number(p.status) === 0);
+}
+
+function planAmount(plan, idx) {
+  const parts = parseSlash(plan.over_money);
+  let amount = Number(parts[idx] || parts[0] || 0);
+  if (plan.type === "split") amount = Number(plan.over_money) * Number(plan.number || 1);
+  return amount;
 }
 
 function matchStuckPlan(user, nextNo) {
+  const n = Number(nextNo);
   const plans = (db.stuckPlans || []).filter((p) => p.uid === user.id && Number(p.status) === 0);
   const order = ["split", "special", "multi", "normal"];
   for (const type of order) {
@@ -586,18 +589,45 @@ function matchStuckPlan(user, nextNo) {
       if (p.type !== type) continue;
       if (type === "multi") {
         const nums = parseSlash(p.current_number).map(Number);
-        const idx = nums.indexOf(nextNo);
+        const idx = nums.indexOf(n);
         if (idx >= 0) return { plan: p, idx };
       } else if (type === "normal") {
         const start = Number(p.current_number);
-        const times = Number(p.number || 1);
-        if (nextNo >= start && nextNo < start + times) return { plan: p, idx: nextNo - start };
-      } else if (Number(p.current_number) === nextNo) {
+        const times = Math.max(1, Number(p.number || 1));
+        if (start > 0 && n >= start && n < start + times) return { plan: p, idx: n - start };
+      } else if (Number(p.current_number) === n) {
         return { plan: p, idx: 0 };
       }
     }
   }
   return null;
+}
+
+function previewNextStuck(user) {
+  const today = Number(user.task_number_today || 0);
+  const cap = Math.max(Number(user.task_number_vip || 40), today + 40);
+  for (let n = today + 1; n <= cap; n++) {
+    const hit = matchStuckPlan(user, n);
+    if (hit) return { at: n, amount: planAmount(hit.plan, hit.idx), plan: hit.plan };
+  }
+  return null;
+}
+
+function syncStuckFlag(user) {
+  const preview = previewNextStuck(user);
+  if (preview) {
+    user.stuck = 1;
+    user.stuck_at = preview.at;
+    user.stuck_amount = money(preview.amount);
+    return;
+  }
+  if (hasOpenStuckPlan(user)) {
+    user.stuck = 1;
+    return;
+  }
+  user.stuck = 0;
+  user.stuck_at = 0;
+  user.stuck_amount = "";
 }
 
 function consumePlan(hit) {
@@ -620,12 +650,11 @@ function consumePlan(hit) {
 
 function buildPlanOrder(user, hit) {
   const p = hit.plan;
-  let amount = Number(parseSlash(p.over_money)[hit.idx] || parseSlash(p.over_money)[0] || 0);
+  let amount = planAmount(p, hit.idx);
   let goods = p.goods || "Combo Collection";
   let count = 1;
   if (p.type === "split") {
     count = Number(p.number || 1);
-    amount = Number(p.over_money) * count;
     goods = `拆分订单 x${count}`;
   }
   if (p.type === "special") goods = p.goods || "Special Combo";
@@ -779,9 +808,7 @@ function resetTasks(user) {
   user.task_number_today = 0;
   user.amount_today = "0.0000";
   cancelPending(user, "reset");
-  if (user.stuck) {
-    user.stuck_at = 1;
-  }
+  syncStuckFlag(user);
   refreshDifference(user);
 }
 
@@ -1191,11 +1218,13 @@ both("/data/api.order/create", (req) => {
     saveDb();
     return ok(publicOrder(order, user));
   }
-  const hitStuck = Number(user.stuck) && (!Number(user.stuck_at) || Number(user.stuck_at) === nextNo);
-  if (hitStuck) {
-    const order = makeStuckOrder(user);
-    saveDb();
-    return ok(publicOrder(order, user));
+  if (!hasOpenStuckPlan(user)) {
+    const at = Number(user.stuck_at || 0);
+    if (Number(user.stuck) && at > 0 && at === nextNo) {
+      const order = makeStuckOrder(user);
+      saveDb();
+      return ok(publicOrder(order, user));
+    }
   }
   const product = PRODUCTS[Math.floor(Math.random() * PRODUCTS.length)];
   const amount = product.amount;
@@ -1488,6 +1517,7 @@ both("/admin/api/stuck/list", (req) => {
   const uid = Number(body(req).uid || body(req).id);
   const user = db.users.find((u) => u.id === uid);
   if (!user) return fail("用户不存在");
+  syncStuckFlag(user);
   const list = (db.stuckPlans || [])
     .filter((p) => p.uid === uid)
     .slice()
@@ -1528,7 +1558,7 @@ both("/admin/api/stuck/save", (req) => {
     over_money,
     commission_type: String(b.commission_type || "rate"),
     commission_rate: String(b.commission_rate || "0"),
-    number: Number(b.number || (type === "normal" || type === "split" ? 1 : 0)),
+    number: Math.max(type === "normal" || type === "split" ? 1 : 0, Number(b.number || 0) || (type === "normal" || type === "split" ? 1 : 0)),
     goods: String(b.goods || ""),
     status: 0,
     used_count: 0,

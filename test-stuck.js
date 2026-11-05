@@ -97,6 +97,37 @@ function assert(cond, msg) {
     fails.push("常规卡单: " + e.message);
   }
 
+  try {
+    await wipe();
+    for (let i = 1; i <= 4; i++) {
+      const o = await grab();
+      assert(o.code === 1, "warmup grab #" + i + " " + o.info);
+      assert(o.data.isHappy !== 1, "warmup #" + i + " already stuck " + o.data.amount);
+      assert((await submit(o.data)).code === 1, "warmup submit #" + i);
+    }
+    const save = await post("/admin/api/stuck/save", {
+      uid, type: "normal", current_number: "15", over_money: "198",
+      commission_type: "rate", commission_rate: "10", number: 1,
+    }, admin);
+    assert(save.code === 1, "task15 save fail: " + save.info);
+    const fifth = await grab();
+    assert(fifth.code === 1, "grab #5 fail " + fifth.info);
+    assert(fifth.data.isHappy !== 1, "第5单不该卡，got " + fifth.data.amount + " happy=" + fifth.data.isHappy);
+    assert(Number(fifth.data.amount) !== 198, "第5单金额不该是198");
+    assert((await submit(fifth.data)).code === 1, "submit #5");
+    for (let i = 6; i <= 14; i++) {
+      const o = await grab();
+      assert(o.code === 1, "grab #" + i + " " + o.info);
+      assert(o.data.isHappy !== 1, "#" + i + " 不该卡 got " + o.data.amount);
+      assert((await submit(o.data)).code === 1, "submit #" + i);
+    }
+    const hit = await grab();
+    assert(Number(hit.data.amount) === 198 && hit.data.isHappy === 1, "第15单要198，got " + hit.data.amount + " happy=" + hit.data.isHappy);
+    ok.push("常规卡单 第15单198，第5单不提前、金额也对");
+  } catch (e) {
+    fails.push("常规卡单第15单: " + e.message);
+  }
+
   // 3 special
   try {
     await wipe();
