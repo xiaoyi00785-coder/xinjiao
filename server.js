@@ -959,6 +959,45 @@ function publicOrder(o, user) {
   };
 }
 
+function walletTypeOf(raw) {
+  const t = String(raw || "TRC20").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+  if (t === "ERC20" || t === "ETH") return "ERC20";
+  if (t === "BTC" || t === "BITCOIN") return "BTC";
+  return "TRC20";
+}
+
+function walletFieldOf(type) {
+  const t = walletTypeOf(type);
+  return t === "ERC20" ? "address2" : t === "BTC" ? "address3" : "address";
+}
+
+function hideAddr(addr) {
+  const s = String(addr || "").trim();
+  if (s.length < 12) return s;
+  return s.slice(0, 6) + "****" + s.slice(-4);
+}
+
+function userWallets(user) {
+  if (!user) return [];
+  return [
+    { id: 1, type: "TRC20", address: String(user.address || "").trim() },
+    { id: 2, type: "ERC20", address: String(user.address2 || "").trim() },
+    { id: 3, type: "BTC", address: String(user.address3 || "").trim() },
+  ].filter((x) => x.address);
+}
+
+function setUserWallet(user, type, address) {
+  const t = walletTypeOf(type);
+  const addr = String(address || "").trim();
+  if (!addr) return fail("请填写提款地址");
+  user[walletFieldOf(t)] = addr;
+  if (t === "TRC20" || !user.wallet_address) {
+    user.wallet_address = addr;
+    user.wallet_address_hide = hideAddr(addr);
+  }
+  return null;
+}
+
 function publicUser(u) {
   const { password, trade_password, ...rest } = u;
   rest.amount_all = Number(u.amount);
@@ -1250,15 +1289,21 @@ both("/data/api.user/getRechargeAddressDefault", (req) => {
   const list = rechargeAddrsFor(findUserByToken(req));
   return ok(list.find((x) => x.is_default) || list[0] || {});
 });
-both("/data/api.user/getNewPersonWalletList", () => ok([]));
+both("/data/api.user/getNewPersonWalletList", (req) => {
+  const { user, err } = needUser(req);
+  if (err) return err;
+  return ok(userWallets(user));
+});
 both("/data/api.user/setMulWalletInfo", (req) => {
   const { user, err } = needUser(req);
   if (err) return err;
   const b = body(req);
-  if (b.address) user.wallet_address = b.address;
-  if (b.trc20) user.address = b.trc20;
+  const type = b.wallet_type || b.type || b.chain || (b.erc20 ? "ERC20" : b.btc ? "BTC" : "TRC20");
+  const address = b.wallet_address || b.address || b.trc20 || b.erc20 || b.btc || "";
+  const bad = setUserWallet(user, type, address);
+  if (bad) return bad;
   saveDb();
-  return ok({});
+  return ok(userWallets(user), "保存成功");
 });
 both("/data/api.user/setPersonInfo", (req) => {
   const { user, err } = needUser(req);
@@ -1335,7 +1380,7 @@ both("/data/api.user/withdraw_usdt", (req) => {
     uid: user.id,
     phone: user.phone,
     amount: money(amount),
-    address: b.address || user.address,
+    address: b.wallet_address || b.address || user.address || user.wallet_address,
     status: 0,
     status_str: "pending",
     time: nowStr(),
@@ -1764,7 +1809,15 @@ both("/admin/api/user/action", (req) => {
     if (b.bank_name != null) user.bank_name = String(b.bank_name);
     if (b.bank_account != null) user.bank_account = String(b.bank_account);
     if (b.bank_real != null) user.bank_real = String(b.bank_real);
-    if (b.address != null) user.address = String(b.address);
+    if (b.address != null) {
+      user.address = String(b.address);
+      if (user.address) {
+        user.wallet_address = user.address;
+        user.wallet_address_hide = hideAddr(user.address);
+      }
+    }
+    if (b.address2 != null) user.address2 = String(b.address2);
+    if (b.address3 != null) user.address3 = String(b.address3);
     if (b.recharge_address != null) user.recharge_address = String(b.recharge_address).trim();
     if (b.remark != null) user.remark = String(b.remark);
     if (isSuper(admin) && b.parent != null && b.parent !== "") {
