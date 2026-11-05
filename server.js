@@ -558,6 +558,7 @@ ensureUserFlags();
 ensureStuckStore();
 ensureChainStore();
 ensureAdminStore();
+ensureSiteStore();
 
 function ensureStuckStore() {
   if (!Array.isArray(db.stuckPlans)) db.stuckPlans = [];
@@ -579,6 +580,49 @@ function ensureAdminStore() {
   });
   const maxId = db.admins.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0);
   if (!db.nextAdmin || db.nextAdmin <= maxId) db.nextAdmin = maxId + 1;
+}
+
+function ensureSiteStore() {
+  if (!db.site || typeof db.site !== "object") db.site = {};
+  const s = db.site;
+  if (!Array.isArray(s.carousel) || !s.carousel.length) {
+    s.carousel = [
+      { id: 1, image: "/assets/g1-Cw7eTwed.png", title: "Banner 1", sort: 1, enabled: 1 },
+      { id: 2, image: "/assets/g2-th-V4ObQ.png", title: "Banner 2", sort: 2, enabled: 1 },
+      { id: 3, image: "/assets/g3-DsDtpS0E.png", title: "Banner 3", sort: 3, enabled: 1 },
+    ];
+  }
+  if (!Array.isArray(s.helps) || !s.helps.length) s.helps = HELP.map((x, i) => ({ id: i + 1, ...x }));
+  if (!Array.isArray(s.services) || !s.services.length) {
+    s.services = [{ id: 1, name: "WhatsApp", url: "https://wa.me/447380931510", enabled: 1 }];
+  }
+  if (!s.notice) s.notice = { has_notice: 0, title: "", content: "" };
+  if (!s.qualification) s.qualification = { content: "" };
+  if (!Array.isArray(s.prizes) || !s.prizes.length) {
+    s.prizes = [
+      { id: 1, title: "2888USDT", amount: 2888 },
+      { id: 2, title: "166USDT", amount: 166 },
+      { id: 3, title: "300USDT", amount: 300 },
+      { id: 4, title: "888USDT", amount: 888 },
+      { id: 5, title: "28USDT", amount: 28 },
+      { id: 6, title: "88USDT", amount: 88 },
+    ];
+  }
+  if (!Array.isArray(s.products) || !s.products.length) {
+    s.products = PRODUCTS.map((x, i) => ({ id: i + 1, ...x, enabled: 1 }));
+  }
+  if (!Array.isArray(s.levels) || !s.levels.length) s.levels = LEVELS.map((x) => ({ ...x, enabled: 1 }));
+}
+
+function getLevels() {
+  return (db.site && db.site.levels && db.site.levels.length ? db.site.levels : LEVELS).filter((x) => Number(x.enabled) !== 0);
+}
+function getProducts() {
+  const list = db.site && db.site.products && db.site.products.length ? db.site.products : PRODUCTS;
+  return list.filter((x) => Number(x.enabled) !== 0);
+}
+function siteList(kind) {
+  return (db.site && db.site[kind]) || [];
 }
 
 function parseSlash(raw) {
@@ -884,6 +928,8 @@ function publicUser(u) {
   rest.amount_difference = u.amount_difference;
   rest.qualification_open = Number(u.qualification_open || u.grab_enabled) ? 1 : 0;
   rest.grab_enabled = Number(u.grab_enabled) ? 1 : 0;
+  const cs = siteList("services").find((x) => Number(x.enabled) !== 0);
+  if (cs && cs.url) rest.service_url = cs.url;
   return rest;
 }
 function findUserByToken(req) {
@@ -1086,9 +1132,17 @@ both("/data/api.user/getMemberInfo", (req) => {
   if (err) return err;
   return ok(publicUser(user));
 });
-both("/data/api.user/getLevelList", () => ok(LEVELS));
-both("/data/api.user/getPlatform", () => ok({ has_notice: 0 }));
-both("/data/api.user/getLastNotice", () => ok({ has_notice: 0 }));
+both("/data/api.user/getLevelList", () => ok(getLevels()));
+both("/data/api.user/getPlatform", () => ok({ has_notice: Number((db.site.notice || {}).has_notice) ? 1 : 0 }));
+both("/data/api.user/getLastNotice", () => {
+  const n = db.site.notice || { has_notice: 0 };
+  return ok({
+    has_notice: Number(n.has_notice) ? 1 : 0,
+    title: n.title || "",
+    content: n.content || "",
+    id: n.id || 1,
+  });
+});
 both("/data/api.user/readNotice", () => ok({}));
 both("/data/api.user/getTeamsData", (req) => {
   const { user, err } = needUser(req);
@@ -1106,41 +1160,46 @@ both("/data/api.user/getTeamsData", (req) => {
     total_order_commission: Number(user.total_commission || 0),
   });
 });
-both("/data/api.user/getQualification", () => ok({ content: "" }));
-both("/data/api.data/carousel", () => ok([]));
-both("/data/api.data/getHelpList", () => ok(HELP));
+both("/data/api.user/getQualification", () => ok({ content: (db.site.qualification && db.site.qualification.content) || "" }));
+both("/data/api.data/carousel", () =>
+  ok(
+    siteList("carousel")
+      .filter((x) => Number(x.enabled) !== 0)
+      .sort((a, b) => Number(a.sort || 0) - Number(b.sort || 0))
+      .map((x) => ({ id: x.id, image: x.image, title: x.title || "" }))
+  )
+);
+both("/data/api.data/getHelpList", () => ok(siteList("helps")));
 both("/data/api.data/pager", () => ok({ list: [] }));
 both("/data/api.user/getCustomerServiceList", () =>
-  ok([{ id: 1, name: "Service", url: "https://wa.me/447380931510" }])
+  ok(siteList("services").filter((x) => Number(x.enabled) !== 0).map((x) => ({ id: x.id, name: x.name, url: x.url })))
 );
 both("/data/api.user/getPrizeInfo", (req) => {
   const { user, err } = needUser(req);
   if (err) return err;
   return ok({ id: user.id, lottery_number: user.lottery_number || 0, bg1: "", bg2: "" });
 });
-both("/data/api.user/getPrizeList", () =>
-  ok({
-    prizes: [
-      { fonts: [{ text: "2888USDT" }] },
-      { fonts: [{ text: "166USDT" }] },
-      { fonts: [{ text: "300USDT" }] },
-      { fonts: [{ text: "888USDT" }] },
-      { fonts: [{ text: "28USDT" }] },
-      { fonts: [{ text: "88USDT" }] },
-    ],
-  })
-);
+both("/data/api.user/getPrizeList", () => {
+  const list = siteList("prizes");
+  return ok({
+    prizes: list.map((p) => ({ fonts: [{ text: p.title, top: "50%", fontSize: "14px", fontColor: "#0068FF" }] })),
+    data: list.map((p) => ({ id: p.id, title: p.title })),
+  });
+});
 both("/data/api.user/randPrize", (req) => {
   const { user, err } = needUser(req);
   if (err) return err;
   if ((user.lottery_number || 0) <= 0) return fail("No lottery times");
+  const list = siteList("prizes");
+  if (!list.length) return fail("No prize");
+  const idx = Math.floor(Math.random() * list.length);
+  const prize = list[idx];
   user.lottery_number -= 1;
-  const prize = ["28USDT", "88USDT", "166USDT"][Math.floor(Math.random() * 3)];
-  const amt = Number(prize.replace("USDT", ""));
-  user.amount = money(Number(user.amount) + amt);
-  db.prizeRecords.unshift({ id: Date.now(), uid: user.id, prize, time: nowStr() });
+  const amt = Number(prize.amount || 0);
+  if (amt > 0) user.amount = money(Number(user.amount) + amt);
+  db.prizeRecords.unshift({ id: Date.now(), uid: user.id, prize: prize.title, amount: money(amt), time: nowStr() });
   saveDb();
-  return ok({ prizeIndex: 0, prize });
+  return ok({ prizeIndex: idx, prize: prize.title });
 });
 both("/data/api.user/getPrizeRecords", (req) => {
   const { user, err } = needUser(req);
@@ -1306,7 +1365,8 @@ both("/data/api.order/create", (req) => {
       return ok(publicOrder(order, user));
     }
   }
-  const product = PRODUCTS[Math.floor(Math.random() * PRODUCTS.length)];
+  const catalog = getProducts();
+  const product = catalog[Math.floor(Math.random() * catalog.length)] || PRODUCTS[0];
   const amount = product.amount;
   if (Number(user.amount) < amount) return fail("Insufficient balance");
   const commission = Number((amount * Number(user.commission_rate)) / 100);
@@ -1472,6 +1532,75 @@ both("/admin/api/agent/action", (req) => {
   saveDb();
   return ok(publicAdmin(row), b.action === "disable" ? "已关闭" : "已保存");
 });
+both("/admin/api/levels", (req) => {
+  const { err } = needAdmin(req);
+  if (err) return err;
+  return ok({ list: getLevels() });
+});
+both("/admin/api/site", (req) => {
+  const { err } = needSuper(req, "代理不能改用户端配置");
+  if (err) return err;
+  const kind = String(body(req).kind || "");
+  if (kind === "notice") return ok(db.site.notice || {});
+  if (kind === "qualification") return ok(db.site.qualification || {});
+  if (!["carousel", "helps", "services", "products", "prizes", "levels"].includes(kind)) return fail("配置类型不对");
+  const list = siteList(kind);
+  return ok({ list, page: { current: 1, total: list.length } });
+});
+both("/admin/api/site/save", (req) => {
+  const { err } = needSuper(req, "代理不能改用户端配置");
+  if (err) return err;
+  const b = body(req);
+  const kind = String(b.kind || "");
+  if (kind === "notice") {
+    db.site.notice = {
+      has_notice: Number(b.has_notice) ? 1 : 0,
+      title: String(b.title || ""),
+      content: String(b.content || ""),
+      id: 1,
+    };
+    saveDb();
+    return ok(db.site.notice, "公告已保存，用户端立刻生效");
+  }
+  if (kind === "qualification") {
+    db.site.qualification = { content: String(b.content || "") };
+    saveDb();
+    return ok(db.site.qualification, "资质说明已保存");
+  }
+  if (!db.site[kind] || !Array.isArray(db.site[kind])) return fail("配置类型不对");
+  let row = db.site[kind].find((x) => String(x.id) === String(b.id));
+  if (!row) {
+    const nid = db.site[kind].reduce((m, x) => Math.max(m, Number(x.id) || 0), 0) + 1;
+    row = { id: nid };
+    db.site[kind].push(row);
+  }
+  ["name", "title", "image", "url", "content", "goods_name"].forEach((k) => {
+    if (b[k] != null) row[k] = String(b[k]);
+  });
+  if (b.amount != null && b.amount !== "") row.amount = Number(b.amount);
+  if (b.sort != null && b.sort !== "") row.sort = Number(b.sort);
+  if (b.enabled != null && b.enabled !== "") row.enabled = Number(b.enabled) ? 1 : 0;
+  if (b.commission_rate != null && b.commission_rate !== "") row.commission_rate = Number(b.commission_rate).toFixed(4);
+  if (b.order_number != null && b.order_number !== "") row.order_number = Number(b.order_number);
+  if (b.number != null && b.number !== "") row.number = Number(b.number);
+  if (b.level_price != null && b.level_price !== "") row.level_price = money(b.level_price);
+  if (b.withdraw_min != null && b.withdraw_min !== "") row.withdraw_min = money(b.withdraw_min);
+  if (b.withdraw_max != null && b.withdraw_max !== "") row.withdraw_max = money(b.withdraw_max);
+  if (b.content_en != null) row.content_en = String(b.content_en);
+  if (kind === "products" && b.name) row.name = String(b.name);
+  saveDb();
+  return ok(row, "已保存，用户端立刻生效");
+});
+both("/admin/api/site/action", (req) => {
+  const { err } = needSuper(req, "代理不能改用户端配置");
+  if (err) return err;
+  const b = body(req);
+  const kind = String(b.kind || "");
+  if (!Array.isArray(db.site[kind])) return fail("配置类型不对");
+  db.site[kind] = db.site[kind].filter((x) => String(x.id) !== String(b.id));
+  saveDb();
+  return ok({}, "已删除");
+});
 both("/admin/api/users", (req) => {
   const { admin, err } = needAdmin(req);
   if (err) return err;
@@ -1573,7 +1702,7 @@ both("/admin/api/user/action", (req) => {
     if (b.accountType !== undefined && b.accountType !== "") user.accountType = Number(b.accountType);
     if (b.vip_level != null && b.vip_level !== "") {
       user.vip_level = Number(b.vip_level);
-      const lv = LEVELS.find((x) => x.number === user.vip_level);
+      const lv = getLevels().find((x) => x.number === user.vip_level);
       if (lv) {
         user.vip_name = lv.name;
         if (b.commission_rate == null || b.commission_rate === "") user.commission_rate = lv.commission_rate;
@@ -1608,7 +1737,7 @@ both("/admin/api/user/create", (req) => {
   if (!phone) return fail("请填写账号/手机");
   if (db.users.some((u) => String(u.phone) === phone || String(u.name) === phone)) return fail("账号已存在");
   const vip = Number(b.vip_level || 1);
-  const lv = LEVELS.find((x) => x.number === vip) || LEVELS[0];
+  const lv = getLevels().find((x) => x.number === vip) || getLevels()[0] || LEVELS[0];
   const id = db.nextUser++;
   const user = {
     id,

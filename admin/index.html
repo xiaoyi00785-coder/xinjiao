@@ -111,12 +111,13 @@
     .modal .actions.center { justify-content: center; gap: 16px; margin-top: 22px; }
     .btn.teal { background: #13c2c2; color: #fff; border: 0; height: 36px; min-width: 96px; }
     .btn.warn { background: #ff7a45; color: #fff; border: 0; height: 36px; min-width: 96px; }
+    .thumb { width: 80px; height: 44px; object-fit: cover; background: #eee; border: 1px solid #eee; }
   </style>
 </head>
 <body>
   <div id="login">
     <div class="login-box">
-      <h2 id="loginTitle">系统管理</h2>
+      <h2 id="loginTitle">总后台</h2>
       <div class="field"><span>👤</span><input id="u" placeholder="登录账号" value="ouzai888" /></div>
       <div class="field"><span>🔒</span><input id="p" type="password" placeholder="登录密码" value="a321321" /></div>
       <button onclick="login()">立即登录</button>
@@ -125,7 +126,7 @@
 
   <div class="app" id="app">
     <div class="top">
-      <div class="brand" id="brand">连单系统 v1.0</div>
+      <div class="brand" id="brand">总后台 · 连单系统</div>
       <div class="top-link active" id="navUsers" onclick="show('users')">管理中心</div>
       <div class="top-link" id="navStats" onclick="show('stats')">数据统计</div>
       <span class="pill">改图工具</span>
@@ -144,6 +145,7 @@
           <li onclick="show('wallets', this)">提现地址</li>
           <li onclick="show('banks', this)">银行卡提现管理</li>
           <li onclick="show('dup', this)">用户查重</li>
+          <li onclick="show('orders', this)">任务订单</li>
         </ul>
         <div class="group-title">财务系统</div>
         <ul class="menu">
@@ -152,6 +154,17 @@
           <li onclick="show('chain', this)">TRC20链上监控</li>
           <li onclick="show('withdraw', this)">提款订单</li>
           <li onclick="show('changes', this)">钱包明细</li>
+        </ul>
+        <div class="group-title super-only">系统配置（用户端）</div>
+        <ul class="menu super-only">
+          <li onclick="show('carousel', this)">首页轮播</li>
+          <li onclick="show('helps', this)">帮助中心</li>
+          <li onclick="show('services', this)">客服设置</li>
+          <li onclick="show('notice', this)">弹窗公告</li>
+          <li onclick="show('qualification', this)">资质说明</li>
+          <li onclick="show('levels', this)">VIP等级</li>
+          <li onclick="show('products', this)">任务商品</li>
+          <li onclick="show('prizes', this)">抽奖奖品</li>
         </ul>
         <div class="group-title">代理中心</div>
         <ul class="menu">
@@ -175,7 +188,9 @@
       users: "用户列表", workers: "做单账户管理", wallets: "提现地址",
       banks: "银行卡提现管理", dup: "用户查重", payaddr: "前端充值地址",
       recharge: "充值订单", chain: "TRC20链上监控", withdraw: "提款订单", changes: "钱包明细",
-      review: "用户提现审核", stats: "数据统计", stuckedit: "编辑卡单", agents: "代理后台管理"
+      review: "用户提现审核", stats: "数据统计", stuckedit: "编辑卡单", agents: "代理后台管理",
+      orders: "任务订单", carousel: "首页轮播", helps: "帮助中心", services: "客服设置",
+      notice: "弹窗公告", qualification: "资质说明", levels: "VIP等级", products: "任务商品", prizes: "抽奖奖品"
     };
     const state = { page: "users", pageNo: 1, limit: 10, accountType: "", filters: {} };
     const cache = { users: [] };
@@ -192,8 +207,8 @@
       document.querySelectorAll(".super-only").forEach((el) => {
         el.style.display = isAgent() ? "none" : "";
       });
-      brand.textContent = isAgent() ? "代理后台 v1.0" : "连单系统 v1.0";
-      adminName.textContent = (me.username || "") + (isAgent() ? "（代理）" : "");
+      brand.textContent = isAgent() ? "代理后台 v1.0" : "总后台 · 连单系统";
+      adminName.textContent = (me.username || "") + (isAgent() ? "（代理）" : "（总后台）");
     }
 
     function toast(msg, err) {
@@ -226,6 +241,7 @@
       document.getElementById("login").style.display = "none";
       document.getElementById("app").style.display = "block";
       applyRole();
+      await loadLevels();
       show("users");
       tick();
     }
@@ -262,6 +278,15 @@
       if (name === "dup") return renderDup();
       if (name === "stuckedit") return renderStuckPage();
       if (name === "agents") return renderAgents();
+      if (name === "orders") return renderOrders();
+      if (name === "carousel") return renderSiteList("carousel");
+      if (name === "helps") return renderSiteList("helps");
+      if (name === "services") return renderSiteList("services");
+      if (name === "products") return renderSiteList("products");
+      if (name === "prizes") return renderSiteList("prizes");
+      if (name === "levels") return renderSiteList("levels");
+      if (name === "notice") return renderNotice();
+      if (name === "qualification") return renderQualification();
     }
 
     function collectFilters() {
@@ -600,11 +625,9 @@
         <div class="row"><label>冻结余额</label><input id="e_frozen" value="${esc(u.amount_frozen || "")}"></div>
         <div class="row"><label>信用分</label><input id="e_credit" value="${esc(u.credit ?? "")}"></div>
         <div class="row"><label>会员等级</label>
-          <select id="e_vip">
-            <option value="1" ${Number(u.vip_level)===1?"selected":""}>VIP1</option>
-            <option value="2" ${Number(u.vip_level)===2?"selected":""}>VIP2</option>
-            <option value="3" ${Number(u.vip_level)===3?"selected":""}>VIP3</option>
-          </select>
+          <select id="e_vip">${(cache.levels || [{number:1,name:"VIP1"},{number:2,name:"VIP2"},{number:3,name:"VIP3"}]).map((lv) =>
+            `<option value="${lv.number}" ${Number(u.vip_level)===Number(lv.number)?"selected":""}>${esc(lv.name)} 佣金${lv.commission_rate}% / ${lv.order_number}单</option>`
+          ).join("")}</select>
         </div>
         <div class="row"><label>佣金%</label><input id="e_rate" value="${esc(u.commission_rate || "")}"></div>
         <div class="row"><label>每日任务数</label><input id="e_tasks" value="${esc(u.task_number_vip || "")}"></div>
@@ -885,6 +908,187 @@
         ${Object.entries(map).map(([ip, phones]) => `<tr><td>${esc(ip)}</td><td>${esc(phones.join(", "))}</td></tr>`).join("")}
       </table></div>`;
     }
+    const siteMeta = {
+      carousel: {
+        hint: "用户端首页轮播。图片填 /assets/g1-Cw7eTwed.png 这类本地资源，或完整 URL。",
+        cols: ["id", "image", "title", "sort", "enabled"],
+        fields: [
+          { k: "image", label: "图片地址", ph: "/assets/g1-Cw7eTwed.png" },
+          { k: "title", label: "标题" },
+          { k: "sort", label: "排序" },
+          { k: "enabled", label: "启用", type: "select" }
+        ]
+      },
+      helps: {
+        hint: "用户端 Help 页。改完刷新用户端立即变。",
+        cols: ["id", "name", "title", "content"],
+        fields: [
+          { k: "name", label: "标识 name", ph: "help1" },
+          { k: "title", label: "标题" },
+          { k: "content", label: "内容 HTML", type: "textarea" }
+        ]
+      },
+      services: {
+        hint: "用户端客服按钮跳这个链接。一般填 WhatsApp / Telegram。",
+        cols: ["id", "name", "url", "enabled"],
+        fields: [
+          { k: "name", label: "名称" },
+          { k: "url", label: "链接", ph: "https://wa.me/447380931510" },
+          { k: "enabled", label: "启用", type: "select" }
+        ]
+      },
+      products: {
+        hint: "用户抢普通任务时从这里随机出单。金额就是订单金额。",
+        cols: ["id", "image", "name", "amount", "enabled"],
+        fields: [
+          { k: "name", label: "商品名" },
+          { k: "amount", label: "金额" },
+          { k: "image", label: "图片", ph: "/assets/goods1-wacp4OKz.png" },
+          { k: "enabled", label: "启用", type: "select" }
+        ]
+      },
+      prizes: {
+        hint: "用户端抽奖转盘文字和中奖金额。",
+        cols: ["id", "title", "amount"],
+        fields: [
+          { k: "title", label: "转盘文字", ph: "88USDT" },
+          { k: "amount", label: "中奖金额" }
+        ]
+      },
+      levels: {
+        hint: "用户端 VIP 页和做任务数量/佣金都读这里。",
+        cols: ["number", "name", "commission_rate", "order_number", "level_price", "withdraw_min", "withdraw_max"],
+        fields: [
+          { k: "number", label: "等级数字" },
+          { k: "name", label: "名称", ph: "VIP1" },
+          { k: "commission_rate", label: "佣金%" },
+          { k: "order_number", label: "每日任务数" },
+          { k: "level_price", label: "升级金额" },
+          { k: "withdraw_min", label: "最小提现" },
+          { k: "withdraw_max", label: "最大提现" },
+          { k: "image", label: "图标", ph: "/assets/c1-BaibLy3p.png" },
+          { k: "content_en", label: "说明", type: "textarea" },
+          { k: "enabled", label: "启用", type: "select" }
+        ]
+      }
+    };
+    function siteCell(kind, col, r) {
+      if (col === "image") return `<img class="thumb" src="${esc(r.image || "")}" alt="">`;
+      if (col === "enabled") return Number(r.enabled) !== 0 ? '<span class="tag green">启用</span>' : '<span class="tag gray">停用</span>';
+      if (col === "content" || col === "content_en") return esc(String(r[col] || "").replace(/<[^>]+>/g, "").slice(0, 36));
+      return esc(r[col] ?? "");
+    }
+    async function renderSiteList(kind) {
+      const meta = siteMeta[kind];
+      const res = await api("/admin/api/site", { kind });
+      if (res.code !== 1) return toast(res.info, 1);
+      const list = res.data.list || [];
+      cache[kind] = list;
+      if (kind === "levels") cache.levels = list;
+      content.innerHTML = `
+        <div class="search">
+          <button class="btn primary" onclick="openSiteRow('${kind}')">新增</button>
+          <span class="muted">${esc(meta.hint)}</span>
+        </div>
+        <div class="table-wrap"><table class="compact">
+          <tr>${meta.cols.map((c) => `<th>${c}</th>`).join("")}<th>操作</th></tr>
+          ${list.map((r) => `<tr>
+            ${meta.cols.map((c) => `<td>${siteCell(kind, c, r)}</td>`).join("")}
+            <td>
+              <button class="btn" onclick="openSiteRow('${kind}',${r.id})">编辑</button>
+              <button class="btn red" onclick="delSiteRow('${kind}',${r.id})">删除</button>
+            </td>
+          </tr>`).join("") || `<tr><td colspan="${meta.cols.length + 1}">暂无数据</td></tr>`}
+        </table></div>`;
+    }
+    function openSiteRow(kind, id) {
+      const meta = siteMeta[kind];
+      const row = (cache[kind] || []).find((x) => String(x.id) === String(id)) || { id: "", enabled: 1 };
+      modal.className = "modal show";
+      modal.innerHTML = `<div class="box">
+        <h3>${titles[kind]} ${row.id ? "编辑" : "新增"}</h3>
+        ${meta.fields.map((f) => {
+          const v = row[f.k] ?? (f.k === "enabled" ? 1 : "");
+          if (f.type === "textarea") return `<div class="row"><label>${f.label}</label><textarea id="sf_${f.k}" rows="5">${esc(v)}</textarea></div>`;
+          if (f.type === "select") return `<div class="row"><label>${f.label}</label>
+            <select id="sf_${f.k}"><option value="1" ${Number(v)!==0?"selected":""}>启用</option><option value="0" ${Number(v)===0?"selected":""}>停用</option></select></div>`;
+          return `<div class="row"><label>${f.label}</label><input id="sf_${f.k}" value="${esc(v)}" placeholder="${esc(f.ph || "")}"></div>`;
+        }).join("")}
+        <div class="actions">
+          <button class="btn primary" onclick="saveSiteRow('${kind}','${row.id || ""}')">保存到用户端</button>
+          <button class="btn" onclick="modal.className='modal'">取消</button>
+        </div>
+      </div>`;
+    }
+    async function saveSiteRow(kind, id) {
+      const meta = siteMeta[kind];
+      const payload = { kind, id };
+      meta.fields.forEach((f) => {
+        const el = document.getElementById("sf_" + f.k);
+        if (el) payload[f.k] = el.value;
+      });
+      const res = await api("/admin/api/site/save", payload);
+      if (res.code !== 1) return toast(res.info, 1);
+      modal.className = "modal";
+      toast(res.info || "已保存");
+      renderSiteList(kind);
+    }
+    async function delSiteRow(idKind, id) {
+      if (!confirm("删除这条？用户端会马上少这一条。")) return;
+      const res = await api("/admin/api/site/action", { kind: idKind, id, action: "delete" });
+      if (res.code !== 1) return toast(res.info, 1);
+      toast("已删除");
+      renderSiteList(idKind);
+    }
+    async function renderNotice() {
+      const res = await api("/admin/api/site", { kind: "notice" });
+      if (res.code !== 1) return toast(res.info, 1);
+      const n = res.data || {};
+      content.innerHTML = `
+        <div class="search"><span class="muted">打开后用户进首页会弹公告。</span></div>
+        <div class="row" style="max-width:640px">
+          <div class="row"><label>是否弹出</label>
+            <select id="nt_on"><option value="0" ${Number(n.has_notice)?"":"selected"}>关闭</option><option value="1" ${Number(n.has_notice)?"selected":""}>开启</option></select>
+          </div>
+          <div class="row"><label>标题</label><input id="nt_title" value="${esc(n.title || "")}"></div>
+          <div class="row"><label>内容</label><textarea id="nt_content" rows="8">${esc(n.content || "")}</textarea></div>
+          <button class="btn primary" onclick="saveNotice()">保存到用户端</button>
+        </div>`;
+    }
+    async function saveNotice() {
+      const res = await api("/admin/api/site/save", { kind: "notice", has_notice: nt_on.value, title: nt_title.value, content: nt_content.value });
+      if (res.code !== 1) return toast(res.info, 1);
+      toast(res.info || "已保存");
+    }
+    async function renderQualification() {
+      const res = await api("/admin/api/site", { kind: "qualification" });
+      if (res.code !== 1) return toast(res.info, 1);
+      const n = res.data || {};
+      content.innerHTML = `
+        <div class="search"><span class="muted">用户端资质/协议页读这段 HTML。</span></div>
+        <div class="row" style="max-width:640px">
+          <textarea id="qf_content" rows="14">${esc(n.content || "")}</textarea>
+          <div style="margin-top:10px"><button class="btn primary" onclick="saveQualification()">保存到用户端</button></div>
+        </div>`;
+    }
+    async function saveQualification() {
+      const res = await api("/admin/api/site/save", { kind: "qualification", content: qf_content.value });
+      if (res.code !== 1) return toast(res.info, 1);
+      toast(res.info || "已保存");
+    }
+    async function renderOrders() {
+      const res = await api("/admin/api/orders", { page: 1 });
+      const list = res.data.list || [];
+      content.innerHTML = `<div class="table-wrap"><table class="compact">
+        <tr><th>订单号</th><th>用户</th><th>商品</th><th>金额</th><th>佣金</th><th>连单</th><th>状态</th><th>时间</th></tr>
+        ${list.map((r) => `<tr>
+          <td>${esc(r.order_no)}</td><td>${esc(r.phone)}</td><td>${esc(r.goods_name || r.goods_title || "")}</td>
+          <td>${r.amount || r.total_money}</td><td>${r.commission || r.commission_money}</td>
+          <td>${r.isHappy ? '<span class="tag orange">连单</span>' : "-"}</td>
+          <td>${esc(r.state_str || r.status_str || "")}</td><td>${esc(r.time || "")}</td>
+        </tr>`).join("") || "<tr><td colspan='8'>暂无订单</td></tr>"}
+      </table></div>`;
+    }
     async function renderAgents() {
       const res = await api("/admin/api/agents");
       if (res.code !== 1) return toast(res.info, 1);
@@ -971,6 +1175,10 @@
       rCount.textContent = s.data.pendingRecharge || 0;
       wCount.textContent = s.data.pendingWithdraw || 0;
     }
+    async function loadLevels() {
+      const res = await api("/admin/api/levels");
+      if (res.code === 1) cache.levels = res.data.list || [];
+    }
     async function boot() {
       if (!token.v) return;
       const res = await api("/admin/api/me");
@@ -984,6 +1192,7 @@
       document.getElementById("login").style.display = "none";
       document.getElementById("app").style.display = "block";
       applyRole();
+      await loadLevels();
       tick();
       show("users");
     }
