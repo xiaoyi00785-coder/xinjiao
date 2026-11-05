@@ -621,6 +621,20 @@ function getProducts() {
   const list = db.site && db.site.products && db.site.products.length ? db.site.products : PRODUCTS;
   return list.filter((x) => Number(x.enabled) !== 0);
 }
+
+function pickAffordableProduct(balance) {
+  const bal = Number(balance) || 0;
+  const catalog = getProducts();
+  const pool = (catalog.length ? catalog : PRODUCTS).map((x) => ({
+    name: x.name,
+    image: x.image,
+    amount: Number(x.amount) || 0,
+  }));
+  const affordable = pool.filter((x) => x.amount > 0 && x.amount <= bal + 0.0001);
+  if (affordable.length) return affordable[Math.floor(Math.random() * affordable.length)];
+  const cheapest = pool.slice().sort((a, b) => a.amount - b.amount)[0] || { ...PRODUCTS[0] };
+  return { ...cheapest, amount: bal > 0 ? Math.min(Number(cheapest.amount) || bal, bal) : 0 };
+}
 function siteList(kind) {
   return (db.site && db.site[kind]) || [];
 }
@@ -1432,7 +1446,7 @@ both("/data/api.order/create", (req) => {
   if (!isGrabOpen(user)) return fail("Grab order is closed");
   if (user.frozen) return fail("Account frozen");
   if (user.task_number_today >= user.task_number_vip) return fail("Daily tasks completed");
-  const pending = pendingOrder(user);
+  let pending = pendingOrder(user);
   const nextNo = Number(user.task_number_today || 0) + 1;
   const hitPlan = matchStuckPlan(user, nextNo);
   if (pending) {
@@ -1441,9 +1455,16 @@ both("/data/api.order/create", (req) => {
       saveDb();
       return ok(publicOrder(order, user));
     }
-    fillOrderCommissionFromPlan(pending);
-    saveDb();
-    return ok(publicOrder(pending, user));
+    const tooExpensive = !pending.stuck && !pending.isHappy && Number(pending.amount) > Number(user.amount) + 0.0001;
+    if (tooExpensive) {
+      pending.state = 2;
+      pending.state_str = "replaced-affordable";
+      pending = null;
+    } else {
+      fillOrderCommissionFromPlan(pending);
+      saveDb();
+      return ok(publicOrder(pending, user));
+    }
   }
   if (hitPlan) {
     const order = buildPlanOrder(user, hitPlan);
@@ -1458,10 +1479,10 @@ both("/data/api.order/create", (req) => {
       return ok(publicOrder(order, user));
     }
   }
-  const catalog = getProducts();
-  const product = catalog[Math.floor(Math.random() * catalog.length)] || PRODUCTS[0];
-  const amount = product.amount;
-  if (Number(user.amount) < amount) return fail("Insufficient balance");
+  if (!(Number(user.amount) > 0)) return fail("Insufficient balance");
+  const product = pickAffordableProduct(user.amount);
+  const amount = Number(product.amount);
+  if (!(amount > 0) || amount > Number(user.amount) + 0.0001) return fail("Insufficient balance");
   const commission = Number((amount * Number(user.commission_rate)) / 100);
   const order = {
     id: db.nextOrder++,
@@ -1498,7 +1519,7 @@ both("/data/api.order/submitOrder", (req) => {
   fillOrderCommissionFromPlan(order);
   const amount = Number(order.amount);
   const commission = Number(order.commission != null && order.commission !== "" ? order.commission : order.commission_money || 0);
-  if (Number(user.amount) < amount) {
+  if (Number(user.amount) + 0.0001 < amount) {
     refreshDifference(user);
     saveDb();
     return fail(`Insufficient balance, difference ${user.amount_difference}`);
@@ -1512,6 +1533,12 @@ both("/data/api.order/submitOrder", (req) => {
   order.state = 1;
   order.state_str = "completed";
   order.finish_time = nowStr();
+  db.orders
+    .filter((o) => o.uid === user.id && o.state === 0 && o.id !== order.id)
+    .forEach((o) => {
+      o.state = 2;
+      o.state_str = "replaced";
+    });
   if (order.stuck || order.isHappy) {
     syncStuckFlag(user);
     if (!user.stuck) {
