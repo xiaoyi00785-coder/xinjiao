@@ -2,6 +2,7 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const QRCode = require("qrcode");
 
 const PORT = process.env.PORT || 5173;
 const DATA_FILE = path.join(__dirname, "data.json");
@@ -122,6 +123,10 @@ const CHAIN_ICONS = {
   BTC: "/assets/c3-DxK2VH12.png",
 };
 
+function qrImage(address) {
+  return "/qr?data=" + encodeURIComponent(String(address || "").trim());
+}
+
 function defaultRechargeAddresses() {
   return [
     {
@@ -132,7 +137,7 @@ function defaultRechargeAddresses() {
       is_default: 1,
       enabled: 1,
       sort: 1,
-      image: CHAIN_ICONS.ERC20,
+      image: qrImage("0x6f0106D0aF8b744f26AD0B7ba9DF8cE97a56f789"),
       remark: "",
     },
     {
@@ -143,7 +148,7 @@ function defaultRechargeAddresses() {
       is_default: 0,
       enabled: 1,
       sort: 2,
-      image: CHAIN_ICONS.TRC20,
+      image: qrImage("TFL58VxgVm2L9Z2v1Hb2xhfpEQDCztvnk1"),
       remark: "",
     },
     {
@@ -154,20 +159,30 @@ function defaultRechargeAddresses() {
       is_default: 0,
       enabled: 1,
       sort: 3,
-      image: CHAIN_ICONS.BTC,
+      image: qrImage("bc1pkm3472syqwq3v3fhqw2vchy7s4zn5gz6eqllgn05fqg66szs6pmqpmzk30"),
       remark: "",
     },
   ];
 }
 
 function publicRechargeAddr(row) {
+  const address = String(row.address || "").trim();
+  const type = String(row.type || "TRC20").trim().toUpperCase();
+  const image = String(row.image || "").trim();
+  const useQr = !image || image.startsWith("/assets/") || image.startsWith("/qr?");
   return {
     id: row.id,
-    name: row.name || row.type,
-    address: row.address,
-    type: row.type,
+    name: row.name || type,
+    address,
+    type,
     is_default: Number(row.is_default) ? 1 : 0,
-    image: row.image || CHAIN_ICONS[row.type] || CHAIN_ICONS.TRC20,
+    image: useQr ? qrImage(address) : image,
+    status: Number(row.enabled) ? 1 : 0,
+    remark: row.remark || "",
+    bank_name: "",
+    bank_account: "",
+    bank_real: "",
+    sort: Number(row.sort || 0),
   };
 }
 
@@ -193,8 +208,9 @@ function ensureRechargeStore() {
   db.rechargeAddresses.forEach((row) => {
     if (row.enabled == null) row.enabled = 1;
     if (row.sort == null) row.sort = row.id || 0;
+    if (row.type) row.type = String(row.type).trim().toUpperCase();
     if (!row.name) row.name = row.type;
-    if (!row.image) row.image = CHAIN_ICONS[row.type] || "";
+    if (!row.image || String(row.image).startsWith("/assets/")) row.image = qrImage(row.address);
     if (row.remark == null) row.remark = "";
   });
   const maxId = db.rechargeAddresses.reduce((m, x) => Math.max(m, Number(x.id) || 0), 0);
@@ -1375,7 +1391,8 @@ both("/admin/api/recharge-address/save", (req) => {
   row.address = address;
   row.enabled = enabled;
   row.sort = Number(b.sort || 0);
-  row.image = String(b.image || CHAIN_ICONS[type] || "").trim();
+  const customImage = String(b.image || "").trim();
+  row.image = !customImage || customImage.startsWith("/assets/") ? qrImage(address) : customImage;
   row.remark = String(b.remark || "").trim();
   if (isDefault) {
     db.rechargeAddresses.forEach((x) => {
@@ -1444,9 +1461,27 @@ both("/admin/api/stats", () =>
   })
 );
 
+app.get("/qr", async (req, res) => {
+  try {
+    const data = String(req.query.data || "").trim();
+    if (!data) return res.status(400).send("missing data");
+    const png = await QRCode.toBuffer(data, {
+      type: "png",
+      width: 280,
+      margin: 1,
+      errorCorrectionLevel: "H",
+      color: { dark: "#000000", light: "#ffffff" },
+    });
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "public, max-age=300");
+    res.send(png);
+  } catch (e) {
+    res.status(500).send("qr error");
+  }
+});
 app.use("/admin", express.static(ADMIN));
 app.use(express.static(PUBLIC));
-app.get(/^\/(?!data\/|admin\/|assets\/).*/, (_req, res) => {
+app.get(/^\/(?!data\/|admin\/|assets\/|qr).*/, (_req, res) => {
   res.sendFile(path.join(PUBLIC, "index.html"));
 });
 

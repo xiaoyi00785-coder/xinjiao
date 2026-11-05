@@ -8,4 +8,5 @@ if (s === n) {
   process.exit(1);
 }
 fs.writeFileSync(dest, n);
+require("./patch-recharge-ui.js");
 console.log("patched", fs.statSync(dest).size);

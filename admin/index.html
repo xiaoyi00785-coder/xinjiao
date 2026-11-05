@@ -603,10 +603,11 @@
           <span class="muted">改的是用户端充值页收款地址，保存后立刻生效。</span>
         </div>
         <div class="table-wrap"><table class="compact">
-          <tr><th>ID</th><th>名称</th><th>网络</th><th>收款地址</th><th>默认</th><th>状态</th><th>排序</th><th>备注</th><th>操作</th></tr>
+          <tr><th>ID</th><th>名称</th><th>网络</th><th>二维码</th><th>收款地址</th><th>默认</th><th>状态</th><th>排序</th><th>备注</th><th>操作</th></tr>
           ${list.map((r) => `<tr>
             <td>${r.id}</td><td>${esc(r.name || r.type)}</td>
             <td><span class="tag blue">${esc(r.type)}</span></td>
+            <td>${r.address ? `<img src="/qr?data=${encodeURIComponent(r.address)}" alt="qr" style="width:72px;height:72px;background:#fff">` : "-"}</td>
             <td class="addr">${esc(r.address)}</td>
             <td>${Number(r.is_default) ? '<span class="tag green">默认</span>' : "-"}</td>
             <td>${Number(r.enabled) ? '<span class="tag green">启用</span>' : '<span class="tag orange">停用</span>'}</td>
@@ -617,7 +618,7 @@
               <button class="btn ${Number(r.enabled) ? "orange" : "primary"}" onclick="payAddrAct(${r.id},'toggle')">${Number(r.enabled) ? "停用" : "启用"}</button>
               <button class="btn red" onclick="payAddrAct(${r.id},'delete')">删除</button>
             </td>
-          </tr>`).join("") || `<tr><td colspan="9">暂无地址</td></tr>`}
+          </tr>`).join("") || `<tr><td colspan="10">暂无地址</td></tr>`}
         </table></div>`;
     }
     function openPayAddr(id) {
@@ -636,9 +637,15 @@
           <div class="row"><label>网络</label>
             <select id="pa_type">${["TRC20","ERC20","BTC","BEP20","SOL"].map((t) => `<option ${row.type===t?"selected":""}>${t}</option>`).join("")}</select>
           </div>
-          <div class="row"><label>收款地址</label><textarea id="pa_address" rows="3">${esc(row.address || "")}</textarea></div>
+          <div class="row"><label>收款地址</label><textarea id="pa_address" rows="3" oninput="previewPayQr()">${esc(row.address || "")}</textarea></div>
+          <div class="row"><label>用户端二维码预览</label>
+            <div style="background:#fff;padding:10px;display:inline-block;border:1px solid #eee">
+              <img id="pa_qr" alt="qr" style="width:180px;height:180px;display:block;object-fit:contain" src="${row.address ? "/qr?data=" + encodeURIComponent(row.address) : ""}">
+              <div class="muted" style="margin-top:6px;max-width:180px;word-break:break-all">${esc(row.address || "保存后前端立刻显示该地址和二维码")}</div>
+            </div>
+          </div>
           <div class="row"><label>排序</label><input id="pa_sort" value="${row.sort ?? 10}"></div>
-          <div class="row"><label>图标</label><input id="pa_image" value="${esc(row.image || "")}"></div>
+          <input type="hidden" id="pa_image" value="">
           <div class="row"><label>备注</label><input id="pa_remark" value="${esc(row.remark || "")}"></div>
           <label><input type="checkbox" id="pa_default" ${Number(row.is_default)?"checked":""}> 默认网络</label><br>
           <label><input type="checkbox" id="pa_enabled" ${Number(row.enabled)!==0?"checked":""}> 启用</label>
@@ -650,10 +657,16 @@
       };
       fill();
     }
+    function previewPayQr() {
+      const addr = (pa_address.value || "").trim();
+      const img = document.getElementById("pa_qr");
+      if (!img) return;
+      img.src = addr ? "/qr?data=" + encodeURIComponent(addr) : "";
+    }
     async function savePayAddr() {
       const res = await api("/admin/api/recharge-address/save", {
         id: pa_id.value, name: pa_name.value, type: pa_type.value, address: pa_address.value,
-        sort: pa_sort.value, image: pa_image.value, remark: pa_remark.value,
+        sort: pa_sort.value, image: "", remark: pa_remark.value,
         is_default: pa_default.checked ? 1 : 0, enabled: pa_enabled.checked ? 1 : 0
       });
       if (res.code !== 1) return toast(res.info, 1);
